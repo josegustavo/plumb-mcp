@@ -53,7 +53,7 @@ export function registerPlumbEmitReact(server: McpServer): void {
       description: DESCRIPTION,
       inputSchema: {
         doc: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .describe("A PdsDocument (Figma) or a WebSpecDocument (plumb_import_web) — auto-detected."),
         componentName: z.string().optional().describe('Default "GeneratedComponent".'),
       },

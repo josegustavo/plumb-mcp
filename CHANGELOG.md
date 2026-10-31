@@ -22,6 +22,12 @@ are summarized only briefly.
 - **Defaults**: `PLUMB_FILE_KEY` is the default file for `plumb_comments` and `plumb_versions`, and `PLUMB_TEAM_ID` the default team for `plumb_files` and `plumb_library`.
 - `serve` includes `plumb_files` and `plumb_library` in its read-only toolset.
 
+### Security
+
+- Production dependencies now audit clean:
+  - zod 3 → 4.6.7 (GHSA-mrhx-c7xc-m3w5, high). Two schema type casts and four `z.record` calls were updated; no behaviour change.
+  - body-parser, qs, hono, fast-uri and ip-address were updated by `npm audit fix`.
+
 ## [0.13.3-fork.1] — fork [josegustavo/plumb-mcp](https://github.com/josegustavo/plumb-mcp)
 
 Upstream 0.13.3 plus the changes below.

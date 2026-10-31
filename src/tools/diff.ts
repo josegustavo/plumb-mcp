@@ -30,8 +30,8 @@ export function registerPlumbDiff(server: McpServer): void {
       title: "Plumb · diff",
       description: DESCRIPTION,
       inputSchema: {
-        before: z.record(z.unknown()).describe(`Snapshot taken BEFORE the change. ${PDS_DOC_DESCRIPTION}`),
-        after: z.record(z.unknown()).describe(`Snapshot taken AFTER the change. ${PDS_DOC_DESCRIPTION}`),
+        before: z.record(z.string(), z.unknown()).describe(`Snapshot taken BEFORE the change. ${PDS_DOC_DESCRIPTION}`),
+        after: z.record(z.string(), z.unknown()).describe(`Snapshot taken AFTER the change. ${PDS_DOC_DESCRIPTION}`),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

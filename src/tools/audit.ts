@@ -27,7 +27,7 @@ export function registerPlumbAudit(server: McpServer): void {
       description: DESCRIPTION,
       inputSchema: {
         doc: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .describe(
             "A full PdsDocument object exactly as returned by plumb_node / plumb_outline / plumb_query.",
           ),

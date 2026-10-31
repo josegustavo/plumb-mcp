@@ -251,13 +251,13 @@ const CustomSectionSchema = z.object({
 });
 
 export const SectionSchema: z.ZodType<Section> = z.discriminatedUnion("role", [
-  NavSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  HeroSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  CardGridSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  FeaturesSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  FormSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  CtaSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  FooterSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  ContentSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
-  CustomSectionSchema as unknown as z.ZodDiscriminatedUnionOption<"role">,
+  NavSectionSchema as unknown as z.ZodObject,
+  HeroSectionSchema as unknown as z.ZodObject,
+  CardGridSectionSchema as unknown as z.ZodObject,
+  FeaturesSectionSchema as unknown as z.ZodObject,
+  FormSectionSchema as unknown as z.ZodObject,
+  CtaSectionSchema as unknown as z.ZodObject,
+  FooterSectionSchema as unknown as z.ZodObject,
+  ContentSectionSchema as unknown as z.ZodObject,
+  CustomSectionSchema as unknown as z.ZodObject,
 ]) as unknown as z.ZodType<Section>;

@@ -334,16 +334,16 @@ const DividerSchema: z.ZodType<Divider> = z.object({
 }) as z.ZodType<Divider>;
 
 BlockSchema = z.discriminatedUnion("type", [
-  StackSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  TextSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  ImageSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  IconSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  ButtonSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  FieldSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  InstanceSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  SlotSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  SpacerSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
-  DividerSchema as unknown as z.ZodDiscriminatedUnionOption<"type">,
+  StackSchema as unknown as z.ZodObject,
+  TextSchema as unknown as z.ZodObject,
+  ImageSchema as unknown as z.ZodObject,
+  IconSchema as unknown as z.ZodObject,
+  ButtonSchema as unknown as z.ZodObject,
+  FieldSchema as unknown as z.ZodObject,
+  InstanceSchema as unknown as z.ZodObject,
+  SlotSchema as unknown as z.ZodObject,
+  SpacerSchema as unknown as z.ZodObject,
+  DividerSchema as unknown as z.ZodObject,
 ]) as unknown as z.ZodType<Block>;
 
 export { BlockSchema };
