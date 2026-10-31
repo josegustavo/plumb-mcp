@@ -44,6 +44,7 @@
     font-size: 10px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .session .sub.err { color: var(--figma-color-text-danger, #c0392b); }
   .session button {
     flex: none; padding: 4px 8px; font-size: 11px;
   }
@@ -73,6 +74,18 @@
     background: var(--figma-color-bg-hover, #e8e8ec);
   }
 
+  /* central-server settings */
+  #settings { display: none; flex-direction: column; gap: 6px; }
+  body.settings #settings { display: flex; }
+  body.settings #sessions, body.settings #actions { display: none; }
+  #settings label { font-size: 11px; color: var(--figma-color-text-secondary, #666); }
+  #settings input {
+    font: inherit; padding: 5px 6px; border-radius: 4px; width: 100%;
+    border: 1px solid var(--figma-color-border, #ddd);
+    background: var(--figma-color-bg, #fff); color: inherit;
+  }
+  #settings .buttons { display: flex; gap: 6px; margin-top: 4px; }
+
   /* collapsed dot — fills whatever window size we end up at */
   #collapsed {
     display: none; position: absolute; inset: 0;
@@ -97,8 +110,21 @@
     <div class="row"><div class="dot" id="dot"></div><span id="title">Plumb</span></div>
     <div id="status">Searching for Plumb servers…</div>
     <div id="sessions"></div>
+    <div id="settings">
+      <label for="rUrl">Central server URL (empty = only local servers)</label>
+      <input id="rUrl" placeholder="https://example.com/plumb-bridge/" autocomplete="off" />
+      <label for="rKey">Pairing key</label>
+      <input id="rKey" type="password" autocomplete="off" />
+      <label for="rMachine">This machine's name</label>
+      <input id="rMachine" placeholder="Office PC" autocomplete="off" />
+      <div class="buttons">
+        <button id="rSave">Save</button>
+        <button id="rCancel" class="ghost">Cancel</button>
+      </div>
+    </div>
     <div id="actions">
       <button id="pairAll" disabled>Pair all</button>
+      <button id="server" class="ghost">Server…</button>
       <button id="hide" class="ghost">Minimize</button>
     </div>
   </div>
@@ -106,21 +132,29 @@
 <script>
   var RETRY_MIN_MS = 1500, RETRY_MAX_MS = 10000;
   var PORTS = [31337, 31338, 31339, 31340, 31341, 31342, 31343, 31344, 31345, 31346];
-  var PLUGIN_VERSION = "0.13.3";
+  var PLUGIN_VERSION = "0.13.3-fork.1";
+  // Central-server URL baked in by `npm run package:plugin -- --remote <url>`.
+  var DEFAULT_REMOTE_URL = ""; // @plumb-remote-default
+  var SETTINGS_HEIGHT = 300;
   var autoPair = false;
   var lastSelection = null, lastInventory = null;
+  var fileName = "";
+  // { url, key, machine } — the central server this machine pairs with, if any.
+  var remoteCfg = { url: DEFAULT_REMOTE_URL, key: "", machine: "" };
 
-  // Per-port session state. Created lazily on first connect attempt; survives
-  // disconnect/reconnect cycles so we keep the same row in the UI.
-  // { ws, paired, sessionLabel, serverVersion, helloTimer, retryTimer,
-  //   discovered (got plumb-hello once), pendingAssetUploads }
+  // Per-server session state, keyed by the local port ("31337"…) or "remote".
+  // Created lazily on first connect attempt; survives disconnect/reconnect
+  // cycles so we keep the same row in the UI.
+  // { kind, port, wsUrl, httpBase, ws, paired, sessionLabel, serverVersion,
+  //   helloTimer, retryTimer, discovered, retryDelay, uploadToken,
+  //   rejectReason, pendingAssetUploads }
   var sessions = Object.create(null);
 
-  // Plugin-worker-side reqId is rewritten as `pP_<origReqId>` so reqIds from
-  // different servers can't collide (each MCP server mints its own r1, r2…).
-  // Wire-side reqIds and /upload/ URLs always use the original reqId so the
-  // bridge's own bookkeeping keeps working.
-  // routing[mainSideReqId] = { port, origReqId }
+  // Plugin-worker-side reqId is rewritten as `p<key>_<origReqId>` so reqIds
+  // from different servers can't collide (each MCP server mints its own r1,
+  // r2…). Wire-side reqIds and /upload/ URLs always use the original reqId so
+  // the bridge's own bookkeeping keeps working.
+  // routing[mainSideReqId] = { key, origReqId }
   var routing = Object.create(null);
 
   var dot = document.getElementById("dot");
@@ -128,31 +162,61 @@
   var statusEl = document.getElementById("status");
   var sessionsEl = document.getElementById("sessions");
   var pairAllBtn = document.getElementById("pairAll");
+  var serverBtn = document.getElementById("server");
   var hideBtn = document.getElementById("hide");
   var collapsed = document.getElementById("collapsed");
+  var rUrl = document.getElementById("rUrl");
+  var rKey = document.getElementById("rKey");
+  var rMachine = document.getElementById("rMachine");
 
   function toMain(msg) { parent.postMessage({ pluginMessage: msg }, "*"); }
   function sendRaw(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
-  function rewriteIn(port, origReqId) { return "p" + port + "_" + origReqId; }
+  function rewriteIn(key, origReqId) { return "p" + key + "_" + origReqId; }
   function originalOf(mainReqId) {
     var r = routing[mainReqId];
     return r ? r.origReqId : mainReqId;
   }
-  function portOf(mainReqId) {
+  function keyOf(mainReqId) {
     var r = routing[mainReqId];
-    return r ? r.port : 0;
+    return r ? r.key : "";
+  }
+
+  // "https://host/path" → { http: "https://host/path/", ws: "wss://host/path/" }.
+  // Accepts http(s) or ws(s); anything else is ignored.
+  function remoteUrls(url) {
+    var u = String(url || "").trim();
+    if (!u) return null;
+    u = u.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    if (!/^https?:\/\//i.test(u)) return null;
+    if (u.charAt(u.length - 1) !== "/") u += "/";
+    return { http: u, ws: u.replace(/^http/i, "ws") };
+  }
+
+  function pairMessage(s) {
+    var m = { t: "pair", pluginVersion: PLUGIN_VERSION };
+    if (s.kind === "remote" && remoteCfg.key) m.secret = remoteCfg.key;
+    if (remoteCfg.machine) m.machine = remoteCfg.machine;
+    if (fileName) m.fileName = fileName;
+    return m;
+  }
+
+  // /upload and /asset URLs; a keyed server hands out a token at pairing.
+  function httpUrl(s, path) {
+    var u = s.httpBase + path;
+    if (s.uploadToken) u += (u.indexOf("?") < 0 ? "?" : "&") + "k=" + encodeURIComponent(s.uploadToken);
+    return u;
   }
 
   function anyPaired() {
-    for (var p in sessions) if (sessions[p].paired) return true;
+    for (var k in sessions) if (sessions[k].paired) return true;
     return false;
   }
   function anyDiscovered() {
-    for (var p in sessions) if (sessions[p].discovered) return true;
+    for (var k in sessions) if (sessions[k].discovered) return true;
     return false;
   }
   function anyUnpairedDiscovered() {
-    for (var p in sessions) if (sessions[p].discovered && !sessions[p].paired) return true;
+    for (var k in sessions) if (sessions[k].discovered && !sessions[k].paired) return true;
     return false;
   }
 
@@ -166,7 +230,7 @@
   // we just summarise — "N paired · 12 screens · Frame 2439".
   function refreshHeader() {
     var pairedCount = 0;
-    for (var p in sessions) if (sessions[p].paired) pairedCount++;
+    for (var k in sessions) if (sessions[k].paired) pairedCount++;
 
     var cls = pairedCount > 0 ? "on" : (anyDiscovered() ? "wait" : "");
     var parts = [];
@@ -188,51 +252,66 @@
     setHeader(cls, parts.join(" "));
   }
 
+  function sortedKeys() {
+    // The central server first, then local ports in order — rows don't jump around.
+    return Object.keys(sessions).sort(function (a, b) {
+      if (a === "remote") return -1;
+      if (b === "remote") return 1;
+      return Number(a) - Number(b);
+    });
+  }
+
   function renderSessions() {
-    // Stable port order so rows don't jump around.
-    var ports = Object.keys(sessions).map(Number).sort(function (a, b) { return a - b; });
+    var keys = sortedKeys();
     sessionsEl.innerHTML = "";
 
     var anyShown = false;
-    for (var i = 0; i < ports.length; i++) {
-      var port = ports[i];
-      var s = sessions[port];
-      if (!s.discovered) continue; // hide ports with no server
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var s = sessions[key];
+      // Hide local ports with no server; always show a configured central server.
+      if (!s.discovered && s.kind !== "remote") continue;
       anyShown = true;
 
       var row = document.createElement("div");
       row.className = "session";
 
       var d = document.createElement("div");
-      d.className = "dot " + (s.paired ? "on" : "wait");
+      d.className = "dot " + (s.paired ? "on" : (s.discovered ? "wait" : ""));
       row.appendChild(d);
 
       var meta = document.createElement("div");
       meta.className = "meta";
       var lbl = document.createElement("div");
       lbl.className = "label";
-      lbl.textContent = s.sessionLabel || ("port " + port);
+      lbl.textContent = s.sessionLabel || (s.kind === "remote" ? "Central server" : "port " + s.port);
       var sub = document.createElement("div");
-      sub.className = "sub";
-      sub.textContent = "v" + (s.serverVersion || "?") + " · :" + port;
+      sub.className = "sub" + (s.rejectReason ? " err" : "");
+      var where = s.kind === "remote" ? s.httpBase.replace(/^https?:\/\//i, "") : ":" + s.port;
+      sub.textContent = s.rejectReason
+        ? s.rejectReason
+        : (s.discovered ? "v" + (s.serverVersion || "?") + " · " + where : "connecting… " + where);
       meta.appendChild(lbl);
       meta.appendChild(sub);
       row.appendChild(meta);
 
-      var btn = document.createElement("button");
-      btn.className = s.paired ? "ghost" : "";
-      btn.textContent = s.paired ? "Unpair" : "Pair";
-      (function (p) {
-        btn.onclick = function () {
-          var ses = sessions[p];
-          if (ses.paired) {
-            try { ses.ws.close(); } catch (e) {}
-          } else {
-            sendRaw(ses.ws, { t: "pair", pluginVersion: PLUGIN_VERSION });
-          }
-        };
-      }(port));
-      row.appendChild(btn);
+      if (s.discovered) {
+        var btn = document.createElement("button");
+        btn.className = s.paired ? "ghost" : "";
+        btn.textContent = s.paired ? "Unpair" : "Pair";
+        (function (k) {
+          btn.onclick = function () {
+            var ses = sessions[k];
+            if (ses.paired) {
+              try { ses.ws.close(); } catch (e) {}
+            } else {
+              ses.rejectReason = "";
+              sendRaw(ses.ws, pairMessage(ses));
+            }
+          };
+        }(key));
+        row.appendChild(btn);
+      }
 
       sessionsEl.appendChild(row);
     }
@@ -240,7 +319,7 @@
     if (!anyShown) {
       var empty = document.createElement("div");
       empty.id = "empty";
-      empty.textContent = "No Plumb servers running. Start one with `plumb-mcp` from a project terminal.";
+      empty.textContent = "No Plumb servers found. Start `plumb-mcp` locally, or set a central server with Server….";
       sessionsEl.appendChild(empty);
     }
 
@@ -250,35 +329,44 @@
   }
 
   function fanout(makePayload) {
-    for (var p in sessions) {
-      var s = sessions[p];
+    for (var k in sessions) {
+      var s = sessions[k];
       if (s.paired) sendRaw(s.ws, makePayload());
     }
   }
 
-  function connectPort(port) {
-    var s = sessions[port];
+  function ensureSession(key, init) {
+    var s = sessions[key];
     if (!s) {
-      s = sessions[port] = {
+      s = sessions[key] = {
+        kind: init.kind, port: init.port || 0, wsUrl: init.wsUrl, httpBase: init.httpBase,
         ws: null, paired: false, sessionLabel: "", serverVersion: "",
         helloTimer: null, retryTimer: null, discovered: false, retryDelay: RETRY_MIN_MS,
+        uploadToken: "", rejectReason: "", closed: false,
         pendingAssetUploads: Object.create(null),
       };
     }
+    return s;
+  }
+
+  function connectSession(key) {
+    var s = sessions[key];
+    if (!s || s.closed) return;
     if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
 
-    try { s.ws = new WebSocket("ws://localhost:" + port); }
-    catch (e) { scheduleRetry(port); return; }
+    try { s.ws = new WebSocket(s.wsUrl); }
+    catch (e) { scheduleRetry(key); return; }
+    var ws = s.ws;
 
-    s.ws.onopen = function () {
-      // If a server is on this port it answers plumb-hello within ~ms.
-      // If it opens but doesn't say hello, treat as unknown and drop.
+    ws.onopen = function () {
+      // A Plumb server answers plumb-hello at once; anything else gets dropped.
+      // A central server is across the internet, so give it longer.
       s.helloTimer = setTimeout(function () {
-        try { s.ws.close(); } catch (e) {}
-      }, 1500);
+        try { ws.close(); } catch (e) {}
+      }, s.kind === "remote" ? 6000 : 1500);
     };
 
-    s.ws.onmessage = function (ev) {
+    ws.onmessage = function (ev) {
       var msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
 
@@ -287,22 +375,24 @@
         s.discovered = true;
         s.retryDelay = RETRY_MIN_MS; // a live server here — reconnect fast if it drops
         s.serverVersion = msg.serverVersion || "";
-        s.sessionLabel = msg.sessionLabel || ("port " + port);
+        s.sessionLabel = msg.sessionLabel || (s.kind === "remote" ? "Central server" : "port " + s.port);
         renderSessions();
-        if (autoPair) sendRaw(s.ws, { t: "pair", pluginVersion: PLUGIN_VERSION });
+        if (autoPair && !s.rejectReason) sendRaw(ws, pairMessage(s));
         return;
       }
 
       if (msg.t === "paired") {
         s.paired = true;
+        s.rejectReason = "";
+        s.uploadToken = msg.uploadToken || "";
         // Bring this newly-paired server up to date with what we already know.
         if (lastInventory) {
-          sendRaw(s.ws, {
+          sendRaw(ws, {
             t: "inventory", fileName: lastInventory.fileName, pages: lastInventory.pages,
           });
         }
         if (lastSelection) {
-          sendRaw(s.ws, {
+          sendRaw(ws, {
             t: "selection", nodeId: lastSelection.nodeId, fileName: lastSelection.fileName,
             pageName: lastSelection.pageName, nodeName: lastSelection.nodeName,
           });
@@ -315,6 +405,8 @@
       }
 
       if (msg.t === "pair-rejected") {
+        // Keep the reason on the row and stop auto-pairing into the same wall.
+        s.rejectReason = msg.reason || "Pairing rejected.";
         renderSessions();
         return;
       }
@@ -326,15 +418,15 @@
       if (msg.reqId && typeof msg.t === "string") {
         // Rewrite reqId so different servers' reqIds (both mint `r1`) can't
         // collide on the plugin-worker side. Original reqId stays on the wire.
-        var mainReqId = rewriteIn(port, msg.reqId);
-        routing[mainReqId] = { port: port, origReqId: msg.reqId };
+        var mainReqId = rewriteIn(key, msg.reqId);
+        routing[mainReqId] = { key: key, origReqId: msg.reqId };
         var copy = {};
         for (var k in msg) copy[k] = msg[k];
         copy.reqId = mainReqId;
         // apply-design ships assets by reference; eager-hydrate their bytes off
-        // the loopback /asset route BEFORE forwarding to main (once).
+        // the bridge's /asset route BEFORE forwarding to main (once).
         if (msg.t === "apply-design" && copy.plan && copy.plan.assets && copy.plan.assets.length) {
-          hydrateAssets(port, copy, function (hydrated) {
+          hydrateAssets(s, copy, function (hydrated) {
             toMain({ type: "server-request", req: hydrated });
           });
         } else {
@@ -343,51 +435,103 @@
         return;
       }
 
-      if (msg.t === "ping") { sendRaw(s.ws, { t: "pong" }); return; }
+      if (msg.t === "ping") { sendRaw(ws, { t: "pong" }); return; }
     };
 
-    s.ws.onclose = function () {
+    ws.onclose = function () {
       if (s.helloTimer) { clearTimeout(s.helloTimer); s.helloTimer = null; }
-      s.ws = null;
+      if (s.ws === ws) s.ws = null;
       s.paired = false;
-      // Drop any in-flight routings for this port — replies will be ignored.
+      s.uploadToken = "";
+      // Drop any in-flight routings for this server — replies will be ignored.
       for (var rid in routing) {
-        if (routing[rid] && routing[rid].port === port) delete routing[rid];
+        if (routing[rid] && routing[rid].key === key) delete routing[rid];
       }
       s.pendingAssetUploads = Object.create(null);
       renderSessions();
-      scheduleRetry(port);
+      scheduleRetry(key);
     };
 
-    s.ws.onerror = function () { try { s.ws.close(); } catch (e) {} };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
   }
 
   // Most of the ten ports have no server behind them. Retrying each every
   // 1.5s forever piles up failed sockets and console errors in Figma's
-  // renderer, so empty ports back off to RETRY_MAX_MS; a port that had a live
-  // server keeps the fast retry (reset on plumb-hello).
-  function scheduleRetry(port) {
-    var s = sessions[port];
-    if (!s || s.retryTimer) return;
+  // renderer, so empty ports back off to RETRY_MAX_MS; a server that answered
+  // keeps the fast retry (reset on plumb-hello).
+  function scheduleRetry(key) {
+    var s = sessions[key];
+    if (!s || s.retryTimer || s.closed) return;
     var delay = s.retryDelay;
     s.retryDelay = Math.min(delay * 2, RETRY_MAX_MS);
     s.retryTimer = setTimeout(function () {
       s.retryTimer = null;
-      connectPort(port);
+      connectSession(key);
     }, delay);
   }
 
-  function connectAll() {
-    for (var i = 0; i < PORTS.length; i++) connectPort(PORTS[i]);
+  function connectLocal() {
+    for (var i = 0; i < PORTS.length; i++) {
+      var port = PORTS[i];
+      ensureSession(String(port), {
+        kind: "local", port: port,
+        wsUrl: "ws://localhost:" + port, httpBase: "http://localhost:" + port + "/",
+      });
+      connectSession(String(port));
+    }
+  }
+
+  // (Re)connect the central server row from remoteCfg; drop it when the URL is empty.
+  function applyRemote() {
+    var old = sessions.remote;
+    if (old) {
+      old.closed = true;
+      if (old.retryTimer) clearTimeout(old.retryTimer);
+      try { if (old.ws) old.ws.close(); } catch (e) {}
+      delete sessions.remote;
+    }
+    var urls = remoteUrls(remoteCfg.url);
+    if (urls) {
+      ensureSession("remote", { kind: "remote", wsUrl: urls.ws, httpBase: urls.http });
+      connectSession("remote");
+    }
+    renderSessions();
+  }
+
+  function openSettings() {
+    rUrl.value = remoteCfg.url || "";
+    rKey.value = remoteCfg.key || "";
+    rMachine.value = remoteCfg.machine || "";
+    document.body.classList.add("settings");
+    toMain({ type: "resize", height: SETTINGS_HEIGHT });
+    rUrl.focus();
+  }
+  function closeSettings() {
+    document.body.classList.remove("settings");
+    toMain({ type: "resize", height: 0 });
   }
 
   pairAllBtn.onclick = function () {
-    for (var p in sessions) {
-      var s = sessions[p];
+    for (var k in sessions) {
+      var s = sessions[k];
       if (s.discovered && !s.paired) {
-        sendRaw(s.ws, { t: "pair", pluginVersion: PLUGIN_VERSION });
+        s.rejectReason = "";
+        sendRaw(s.ws, pairMessage(s));
       }
     }
+  };
+
+  serverBtn.onclick = openSettings;
+  document.getElementById("rCancel").onclick = closeSettings;
+  document.getElementById("rSave").onclick = function () {
+    remoteCfg = {
+      url: rUrl.value.trim(),
+      key: rKey.value.trim(),
+      machine: rMachine.value.trim().slice(0, 60),
+    };
+    toMain({ type: "save-remote", remote: remoteCfg });
+    closeSettings();
+    applyRemote();
   };
 
   hideBtn.onclick = function () {
@@ -405,6 +549,16 @@
     if (!msg || !msg.type) return;
     if (msg.type === "init") {
       autoPair = msg.autoPair === true;
+      fileName = msg.fileName || "";
+      var stored = msg.remote;
+      if (stored && typeof stored === "object") {
+        remoteCfg = {
+          url: typeof stored.url === "string" ? stored.url : DEFAULT_REMOTE_URL,
+          key: typeof stored.key === "string" ? stored.key : "",
+          machine: typeof stored.machine === "string" ? stored.machine : "",
+        };
+      }
+      applyRemote();
       if (autoPair) {
         document.body.classList.add("mini");
         toMain({ type: "collapse" });
@@ -422,6 +576,7 @@
     }
     if (msg.type === "inventory") {
       lastInventory = msg;
+      if (msg.fileName) fileName = msg.fileName;
       refreshHeader();
       fanout(function () {
         return { t: "inventory", fileName: msg.fileName, pages: msg.pages };
@@ -444,8 +599,8 @@
 
   function forwardReply(reply) {
     if (!reply || !reply.reqId) return;
-    var port = portOf(reply.reqId);
-    var s = port && sessions[port];
+    var key = keyOf(reply.reqId);
+    var s = key && sessions[key];
     if (!s || !s.paired) {
       // Originator disappeared — drop pending state and bail.
       if (s) delete s.pendingAssetUploads[reply.reqId];
@@ -475,10 +630,10 @@
   }
 
   // Eager-hydrate an apply-design plan's assets: GET each /asset/:ref.:ext off
-  // the loopback bridge, attach the bytes as a Uint8Array on the asset, and
-  // invoke cb(req) ONCE when every fetch settles. A missing/failed asset is
-  // left without `data` — the plugin warns + stub-and-continues, never blocks.
-  function hydrateAssets(port, req, cb) {
+  // the bridge, attach the bytes as a Uint8Array on the asset, and invoke
+  // cb(req) ONCE when every fetch settles. A missing/failed asset is left
+  // without `data` — the plugin warns + stub-and-continues, never blocks.
+  function hydrateAssets(s, req, cb) {
     var assets = (req.plan && req.plan.assets) || [];
     var toFetch = [];
     for (var i = 0; i < assets.length; i++) {
@@ -494,7 +649,7 @@
     }
     for (var j = 0; j < toFetch.length; j++) {
       (function (asset) {
-        var url = "http://localhost:" + port + "/asset/" + asset.ref + "." + (asset.ext || "png");
+        var url = httpUrl(s, "asset/" + asset.ref + "." + (asset.ext || "png"));
         fetch(url)
           .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
           .then(function (buf) { asset.data = new Uint8Array(buf); })
@@ -511,16 +666,16 @@
     } catch (e) { return Promise.reject(e); }
   }
 
-  // Ship raw screenshot bytes over loopback HTTP — no base64, no JSON framing.
+  // Ship raw screenshot bytes over HTTP — no base64, no JSON framing.
   // The bridge writes the body straight to disk and resolves the pending
   // screenshot promise once it sees the matching `screenshot` WS reply.
   function uploadScreenshot(msg) {
-    var port = portOf(msg.reqId);
-    var s = port && sessions[port];
+    var key = keyOf(msg.reqId);
+    var s = key && sessions[key];
     if (!s) return;
     var ext = (msg.format || "PNG").toLowerCase();
     var origReqId = originalOf(msg.reqId);
-    var url = "http://localhost:" + port + "/upload/" + origReqId + "." + ext;
+    var url = httpUrl(s, "upload/" + origReqId + "." + ext);
     postBinary(url, msg.bytes)
       .then(function () {
         sendRaw(s.ws, {
@@ -544,20 +699,19 @@
       });
   }
 
-  // Asset bytes ride the same loopback HTTP channel as screenshots — one POST
-  // per asset, keyed by `${origReqId}-${index}` so the bridge matches them to
+  // Asset bytes ride the same HTTP channel as screenshots — one POST per
+  // asset, keyed by `${origReqId}-${index}` so the bridge matches them to
   // manifest entries that follow in the assets WS reply. The plugin worker
   // serialises uploads via upload-ack postMessage between each; without that
   // gating, Figma's IPC buffers and redelivers postMessages, causing duplicate
   // POSTs that race the manifest reply.
   function uploadAsset(msg) {
-    var port = portOf(msg.reqId);
-    var s = port && sessions[port];
+    var key = keyOf(msg.reqId);
+    var s = key && sessions[key];
     if (!s) return;
     var origReqId = originalOf(msg.reqId);
     var ext = msg.ext || "bin";
-    var url = "http://localhost:" + port +
-      "/upload/" + origReqId + "-" + msg.index + "." + ext;
+    var url = httpUrl(s, "upload/" + origReqId + "-" + msg.index + "." + ext);
     var p = postBinary(url, msg.bytes);
     if (!s.pendingAssetUploads[msg.reqId]) s.pendingAssetUploads[msg.reqId] = [];
     s.pendingAssetUploads[msg.reqId].push(p);
@@ -574,7 +728,7 @@
   }
 
   renderSessions();
-  connectAll();
+  connectLocal();
 </script>
 </body>
 </html>

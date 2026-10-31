@@ -10,6 +10,11 @@ import { runStudioCli } from "./cli/studio";
 import { runVerifyCli } from "./cli/verify";
 import { SERVER_VERSION } from "./meta";
 import { createServer } from "./server";
+import { httpOptionsFromEnv, LOOPBACK, startHttpMcp } from "./http";
+import { sweepExports } from "./hosted";
+import { pairSecret } from "./bridge/policy";
+import { resolveBridgeHost } from "./bridge/ports";
+import { join } from "node:path";
 
 const HELP = `plumb-mcp ${SERVER_VERSION} — Figma MCP server for AI coding agents
 
@@ -39,6 +44,11 @@ Usage:
                              from the design, render it, diff it, and correct
                              it pass-by-pass until it matches pixel-for-pixel.
                              Needs ANTHROPIC_API_KEY. Run \`plumb-mcp fit --help\`.
+
+  plumb-mcp serve            Run as a shared server: MCP over HTTP at /mcp
+                             (PLUMB_HTTP_HOST/PORT, bearer PLUMB_MCP_TOKEN) plus
+                             the plugin bridge, read-only toolset by default.
+                             See docs/central-server.md.
 
   plumb-mcp studio           Open Plumb Studio — a live local cockpit that
                              mirrors what your AI agent is doing (design, live
@@ -123,6 +133,26 @@ async function main(): Promise<void> {
   if (arg === "init") {
     runInit();
     return;
+  }
+  if (arg === "serve") {
+    // Hosted mode: tools inline their images and default to the read-only set.
+    process.env.PLUMB_TRANSPORT = "http";
+    if (!pairSecret() && !LOOPBACK.has(resolveBridgeHost())) {
+      throw new Error(
+        "PLUMB_PAIR_SECRET is required when the bridge binds beyond loopback (PLUMB_BRIDGE_HOST) — " +
+          "without it anyone who reaches the bridge can pair.",
+      );
+    }
+    const exportDirs = [
+      process.env.PLUMB_ASSETS_DIR ?? join(process.cwd(), "plumb-assets"),
+      process.env.PLUMB_SCREENSHOTS_DIR ?? join(process.cwd(), "plumb-screenshots"),
+    ];
+    sweepExports(exportDirs);
+    setInterval(() => sweepExports(exportDirs), 60 * 60 * 1000).unref();
+    await startBridge();
+    await startHttpMcp(httpOptionsFromEnv());
+    log.info("running", { version: SERVER_VERSION, transport: "http" });
+    return; // the HTTP and bridge servers keep the process alive
   }
   if (arg === "demo") {
     const code = await runDemoCli(process.argv.slice(3));

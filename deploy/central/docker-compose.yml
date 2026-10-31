@@ -1,0 +1,48 @@
+# Plumb as a central server: one container next to your reverse proxy, one
+# Figma desktop (anywhere) running the plugin and pairing with it over HTTPS.
+#
+#   cp .env.example .env   # fill in the secrets
+#   docker compose up -d
+#
+# Nothing is published on the host. The reverse proxy reaches the bridge
+# (31337) on the shared network and exposes ONE path of it to the Figma
+# machine; MCP clients or a gateway reach /mcp (8080) on the same network.
+# See ../../docs/central-server.md.
+
+services:
+  plumb:
+    # Pin a release tag in production (e.g. :0.13.3-fork.1) — `latest` moves.
+    image: ${PLUMB_IMAGE:-ghcr.io/josegustavo/plumb-mcp:latest}
+    command: ["serve"]
+    restart: unless-stopped
+    environment:
+      PLUMB_SESSION_NAME: ${PLUMB_SESSION_NAME:-central}
+      PLUMB_BRIDGE_HOST: 0.0.0.0
+      PLUMB_BRIDGE_PORT: "31337"
+      PLUMB_HTTP_HOST: 0.0.0.0
+      PLUMB_HTTP_PORT: "8080"
+      PLUMB_PAIR_SECRET: ${PLUMB_PAIR_SECRET:?set PLUMB_PAIR_SECRET in .env}
+      PLUMB_MCP_TOKEN: ${PLUMB_MCP_TOKEN:?set PLUMB_MCP_TOKEN in .env}
+      PLUMB_ALLOWED_FILES: ${PLUMB_ALLOWED_FILES:-}
+      PLUMB_TOOLS: ${PLUMB_TOOLS:-}
+      # Only plumb_comments / plumb_versions use it (Figma REST, Tier 2).
+      FIGMA_TOKEN: ${FIGMA_TOKEN:-}
+      PLUMB_LOG_FORMAT: json
+    # Docker keeps container logs forever by default; cap them.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    volumes:
+      - plumb-data:/data
+    networks:
+      - plumb
+
+volumes:
+  plumb-data:
+
+networks:
+  # Attach your reverse proxy and MCP gateway to this network, or replace it
+  # with an existing external one:  plumb: { external: true, name: proxy-net }
+  plumb:

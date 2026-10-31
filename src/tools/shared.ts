@@ -1,4 +1,5 @@
 import { PlumbError, toErrorPayload } from "../errors";
+import { isHosted } from "../hosted";
 import { assertStructureBounds } from "../util/bounds";
 import type { PdsDocument } from "../pds";
 
@@ -15,8 +16,21 @@ export function fail(e: unknown) {
   };
 }
 
-/** The Figma token from env, or a PlumbError telling the agent how to set one. */
-export function requireToken(): string {
+/**
+ * The Figma token from env, or a PlumbError telling the agent how to set one.
+ *
+ * A hosted server (`plumb-mcp serve`) reads designs through the plugin only:
+ * REST file reads would skip PLUMB_ALLOWED_FILES and spend the Figma plan's
+ * small monthly Tier 1 quota on every remote client's behalf. Only the
+ * comments and versions tools (Tier 2, per-minute limits) pass `hostedOk`.
+ */
+export function requireToken(hostedOk = false): string {
+  if (isHosted() && !hostedOk) {
+    throw new PlumbError(
+      "This server reads Figma through the plugin only; fileKey/url (REST) reads are off.",
+      "Pass a node id or screen name instead, with the Plumb plugin paired.",
+    );
+  }
   const token = process.env.FIGMA_TOKEN ?? process.env.FIGMA_ACCESS_TOKEN;
   if (!token) {
     throw new PlumbError(

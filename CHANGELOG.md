@@ -12,6 +12,48 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [0.13.3-fork.1] — fork [josegustavo/plumb-mcp](https://github.com/josegustavo/plumb-mcp)
+
+Upstream 0.13.3 plus the changes below.
+
+### Added
+
+- **Named styles on nodes**: `fillStyle`, `strokeStyle`, `textStyle`, `effectStyle`, `gridStyle`.
+- **Text details**:
+  - `textAlign` and `textValign`, italics, `paraGap`, `maxLines`;
+  - links (`href`) and list types (`list`).
+- **Layout and hand-off**:
+  - Figma Grid auto-layout (`flow: grid`, `gridCell`) and layout grids (`grids`);
+  - `annotations`, `devStatus` and export settings (`export`);
+  - component property definitions in `plumb_components`.
+- **`plumb_variables`**: local variable collections and named styles with their values.
+- **`plumb_node includeHidden`**: hidden layers, with `hiddenFills`.
+- **`plumb_comments` and `plumb_versions`**: comment threads and version history over the Figma REST API. They need `FIGMA_TOKEN` and are rate-limited per minute (Tier 2).
+- **`plumb-mcp serve`**: MCP over Streamable HTTP at `/mcp`, with a bearer token (`PLUMB_MCP_TOKEN`).
+  - Serves a read-only toolset by default (`PLUMB_TOOLS` overrides).
+  - Returns screenshots and bitmaps inline as MCP image blocks.
+  - Deletes exports after 24 h.
+  - Refuses REST file reads, so they can't bypass `PLUMB_ALLOWED_FILES` or spend the Tier 1 quota; comments and versions still work.
+  - Refuses to start a bridge beyond loopback without `PLUMB_PAIR_SECRET`.
+- **Keyed bridge**:
+  - `PLUMB_PAIR_SECRET` pairing key, plus a per-pairing upload token for `/upload` and `/asset`;
+  - `PLUMB_ALLOWED_FILES`, `PLUMB_HEARTBEAT_MS` ping and drop, `PLUMB_MAX_UPLOAD_BYTES`;
+  - the machine label in status and health;
+  - Studio off when keyed.
+- **Plugin**: a **Server…** panel (URL, key, machine name) for a remote bridge.
+  - `npm run package:plugin [-- --remote <url>]` builds an importable zip.
+  - Each `v*` tag attaches the zip to its GitHub release.
+- **Deploy kit**: `deploy/central/` (compose, env and Caddy examples) and `docs/central-server.md`.
+
+### Fixed
+
+- Exports no longer overwrite an earlier file with the same name.
+- The bridge no longer trusts a file path or screenshot format sent back by the plugin. A plugin on another machine could otherwise make the server read or create files outside its folders.
+
+### Changed
+
+- `release.yml` (npm and MCP Registry publishing) and `docs.yml` (Pages) run only on the upstream repository.
+
 ## [0.13.3]
 
 ### Added

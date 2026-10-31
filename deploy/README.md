@@ -62,14 +62,16 @@ behind an ingress or a port-forward. Set a long read timeout on the ingress
 (`nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"`) — the Studio socket
 is long-lived and most controllers cut it at 60s.
 
-### ⚠️ The Figma plugin — port-forward only
+### The Figma plugin — port-forward, or a keyed central server
 
-`figma-plugin/ui.html` scans `127.0.0.1:31337`–`31346` to find a bridge. It has
-no notion of a remote host, and Figma's plugin sandbox is not somewhere you can
-inject one. So a plugin **cannot** dial a cluster Service directly, no matter
-how you expose it.
+`figma-plugin/ui.html` scans `127.0.0.1:31337`–`31346` to find a bridge. It can
+also dial one remote bridge, set under **Server…** in the panel (or baked into
+a zip by `npm run package:plugin -- --remote <url>`), but only an origin the
+plugin's `manifest.json` allows, and only safely with `PLUMB_PAIR_SECRET` set.
+That is the central-server setup in [`central/`](./central) and
+[`docs/central-server.md`](../docs/central-server.md).
 
-What does work, and works well:
+Without it, port-forward works well:
 
 ```bash
 kubectl -n plumb port-forward svc/plumb 31337:31337

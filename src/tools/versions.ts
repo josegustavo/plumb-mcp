@@ -35,7 +35,7 @@ export function registerPlumbVersions(server: McpServer): void {
         if (!fileKey) {
           throw new PlumbError("No Figma file key given.", "Pass `url` (any link to the file) or `fileKey`.");
         }
-        const raw = await fetchVersions(fileKey, requireToken(), args.limit ?? 20);
+        const raw = await fetchVersions(fileKey, requireToken(true), args.limit ?? 20);
         const versions = raw
           .filter((v) => !args.namedOnly || !!v.label)
           .map((v) => ({

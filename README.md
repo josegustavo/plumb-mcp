@@ -6,6 +6,22 @@
 
 # Plumb (`plumb-mcp`) — the AI-native design engineering platform
 
+> [!NOTE]
+> **This is a fork** of [tathagat22/plumb-mcp](https://github.com/tathagat22/plumb-mcp) (MIT). It follows upstream and adds the reads and the shared-server mode below. Everything else in this README is upstream's and still applies. The fork's changes are listed in [CHANGELOG.md](./CHANGELOG.md).
+>
+> - **More Figma details.** Nodes name their colour, text, effect and grid **styles** (`fillStyle`, `textStyle`, …). They also carry text alignment and links, lists, paragraph spacing, max lines and italics, plus Figma Grid layout, layout grids, annotations, dev status and export settings. `plumb_components` returns component property definitions.
+> - **New read tools.**
+>   - `plumb_variables` lists local variables and named styles with their values.
+>   - `plumb_node includeHidden` also returns hidden layers.
+>   - `plumb_comments` and `plumb_versions` read comment threads and version history. They are the only two that call the Figma REST API. They need a free personal access token (`FIGMA_TOKEN`) and fall under Figma's per-minute Tier 2 limits, not the monthly Tier 1 quota.
+> - **Central server.** `plumb-mcp serve` runs one container a whole team shares over MCP (HTTP + bearer token). Only one machine needs Figma desktop and the plugin, pairing from anywhere with a key. See [docs/central-server.md](./docs/central-server.md).
+> - **Exports never overwrite** an earlier file with the same name.
+>
+> **Installing the fork.** npm's `plumb-mcp` is upstream; this fork isn't published there.
+> - Docker image: `ghcr.io/josegustavo/plumb-mcp`.
+> - Figma plugin: a zip on each [release](https://github.com/josegustavo/plumb-mcp/releases).
+> - From source: clone `https://github.com/josegustavo/plumb-mcp`, then run `npm ci && npm run build`. Point your MCP client at `node <clone>/dist/index.js` and import `<clone>/figma-plugin/manifest.json` in Figma desktop.
+
 <p align="center">
   <a href="https://github.com/tathagat22/plumb-mcp"><img alt="GitHub stars" src="https://img.shields.io/github/stars/tathagat22/plumb-mcp?style=social"></a>
   &nbsp;

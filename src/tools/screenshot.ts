@@ -5,9 +5,11 @@ import {
   statSync,
   unlinkSync,
   existsSync,
+  readFileSync,
 } from "node:fs";
 import { isAbsolute, join, parse, resolve, sep } from "node:path";
 import { z } from "zod";
+import { inlineMaxBytes, isHosted } from "../hosted";
 import { formatScreenMatches, resolveScreen, screenName } from "../bridge/inventory";
 import { requestScreenshot } from "../bridge/server";
 import { bridge } from "../bridge/store";
@@ -118,6 +120,14 @@ export function registerPlumbScreenshot(server: McpServer): void {
               "bare filenames are placed under the screenshots directory. " +
               "Defaults to '<name>-<id>.<ext>', auto-suffixed on collision.",
           ),
+        inline: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also return the image inside the response (an MCP image block), for " +
+              "clients that can't read this machine's disk. Default true on a hosted " +
+              "(`plumb-mcp serve`) server, false otherwise.",
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -176,15 +186,25 @@ export function registerPlumbScreenshot(server: McpServer): void {
           try { unlinkSync(tempPath); } catch { /* leave the temp file */ }
         }
         const bytes = statSync(path).size;
-        return ok({
+        const inline = args.inline ?? isHosted();
+        const fits = bytes <= inlineMaxBytes();
+        const result = ok({
           source: "plugin",
           screen: nodeName,
           path,
           format,
           bytes,
           scale: args.scale ?? 2,
+          ...(inline && !fits ? { inlineSkipped: `larger than ${inlineMaxBytes()} bytes — lower \`scale\`` } : {}),
           next: "Use this image as the visual reference of the design — compare it against what you build.",
         });
+        if (!inline || !fits) return result;
+        const image = {
+          type: "image" as const,
+          data: readFileSync(path).toString("base64"),
+          mimeType: format === "JPG" ? "image/jpeg" : "image/png",
+        };
+        return { content: [...result.content, image] };
       } catch (e) {
         return fail(e);
       }

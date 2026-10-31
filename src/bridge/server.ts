@@ -1,29 +1,33 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createWriteStream } from "node:fs";
-import { basename, join } from "node:path";
-import { tmpdir } from "node:os";
+import { createServer, type Server } from "node:http";
+import { basename } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { resolveBridgeHost, resolveBridgePorts } from "./ports";
 import {
   clearProgressListener,
   heartbeat,
   openRequest,
-  pendingCount,
   rejectAllPending,
   resetRequestQueue,
   resolvePending,
   setProgressListener,
 } from "./requestQueue";
+import { handleHttp } from "./routes";
 import { bridge } from "./store";
+import {
+  cleanLabel,
+  fileAllowed,
+  heartbeatMs,
+  newUploadToken,
+  pairSecret,
+  secretMatches,
+  studioAllowed,
+} from "./policy";
 import { PlumbError } from "../errors";
 import {
   PENDING_UPLOAD_TTL_MS,
   clearAllPendingUploads,
   markAssetRequest,
-  readInboundAsset,
   resetStaging,
-  stageUpload,
-  stagingStats,
   sweepExpiredUploads,
   takeAssetRequestElapsed,
   takeUpload,
@@ -31,7 +35,7 @@ import {
 import { createLogger } from "../logger";
 import { SERVER_VERSION } from "../meta";
 import { onStudio, recentStudio } from "../studio/events";
-import { serveStudio, studioAvailable } from "../studio/serve";
+import { studioAvailable } from "../studio/serve";
 import type { FigmaNode } from "../figma/types";
 import type {
   ApplyProgressMessage,
@@ -296,161 +300,7 @@ export async function requestApplyMotion(
  *  the asset engine keeps importing it from the bridge, which owns the route. */
 export { stageInboundAsset } from "./uploads";
 
-/** HTTP request handler for the bridge's loopback server. Serves CORS preflight,
- *  the `/upload/:reqId.:ext` POST that the plugin UI uses to ship raw screenshot
- *  bytes, and the `/asset/:key.:ext` GET the plugin pulls inbound bytes from —
- *  no base64 anywhere in the hot path. */
-/** Health/readiness snapshot served at `GET /healthz`. */
-export interface HealthReport {
-  ok: true;
-  version: string;
-  /** The port the bridge bound, or null when no port in the pool was free. */
-  port: number | null;
-  /** Whether a Figma plugin has completed the one-time pairing click. */
-  paired: boolean;
-  pluginVersion: string | null;
-  /** Seconds since the process started. */
-  uptimeSec: number;
-  /** ms since the last message from the plugin, or null if none yet. */
-  lastSeenMsAgo: number | null;
-  /** In-flight plugin requests — a number that only grows means a wedged plugin. */
-  pending: number;
-  /** Bytes and temp files held between an HTTP upload and its WS reply. Also a
-   *  number that should return to zero; one that doesn't is a leak. */
-  staging: { uploads: number; assetRequests: number; inbound: number };
-  /** Whether the built Studio SPA is present in this install. */
-  studio: boolean;
-}
-
-/**
- * The health document, in Prometheus text exposition format.
- *
- * Deliberately hand-rolled rather than pulling in a metrics client: there are
- * six numbers, the format is a documented one-liner per sample, and a
- * dependency to emit it would be larger than the server's entire runtime tree.
- */
-export function renderMetrics(): string {
-  const h = healthReport();
-  const lines = [
-    "# HELP plumb_up Whether the bridge is serving.",
-    "# TYPE plumb_up gauge",
-    "plumb_up 1",
-    "# HELP plumb_plugin_paired Whether a Figma plugin has completed pairing.",
-    "# TYPE plumb_plugin_paired gauge",
-    `plumb_plugin_paired ${h.paired ? 1 : 0}`,
-    "# HELP plumb_uptime_seconds Seconds since the process started.",
-    "# TYPE plumb_uptime_seconds counter",
-    `plumb_uptime_seconds ${h.uptimeSec}`,
-    "# HELP plumb_requests_in_flight Plugin requests awaiting a reply.",
-    "# TYPE plumb_requests_in_flight gauge",
-    `plumb_requests_in_flight ${h.pending}`,
-    "# HELP plumb_staged_uploads Uploaded files awaiting their matching reply.",
-    "# TYPE plumb_staged_uploads gauge",
-    `plumb_staged_uploads ${h.staging.uploads}`,
-    "# HELP plumb_staged_inbound Byte payloads staged for the plugin to pull.",
-    "# TYPE plumb_staged_inbound gauge",
-    `plumb_staged_inbound ${h.staging.inbound}`,
-  ];
-  return lines.join("\n") + "\n";
-}
-
-export function healthReport(): HealthReport {
-  return {
-    ok: true,
-    version: SERVER_VERSION,
-    port: bridge.port,
-    paired: bridge.paired,
-    pluginVersion: bridge.pluginVersion,
-    uptimeSec: Math.round(process.uptime()),
-    lastSeenMsAgo: bridge.lastSeen ? Date.now() - bridge.lastSeen : null,
-    pending: pendingCount(),
-    staging: stagingStats(),
-    studio: studioAvailable(),
-  };
-}
-
-function handleHttp(req: IncomingMessage, res: ServerResponse): void {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  if (req.method === "GET") {
-    // Liveness + readiness in one document. `ok` answers "is this process
-    // alive"; `paired` answers "can the plugin path actually serve a request
-    // right now" — a container orchestrator wants the first, a human
-    // debugging "why did plumb_node time out" wants the second.
-    // `/healthz` is the Kubernetes convention; `/health` is what most other
-    // probes and uptime checkers reach for. Same document either way — an
-    // operator should not have to guess which spelling this server picked.
-    if (req.url === "/healthz" || req.url === "/health") {
-      const body = JSON.stringify(healthReport());
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Length": Buffer.byteLength(body),
-        "Cache-Control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
-    // Prometheus text exposition. The counters that actually indicate trouble
-    // are the two that should return to zero and don't when something is
-    // wedged: in-flight plugin requests, and staged bytes waiting for a reply.
-    if (req.url === "/metrics") {
-      const body = renderMetrics();
-      res.writeHead(200, {
-        "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
-        "Content-Length": Buffer.byteLength(body),
-        "Cache-Control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
-    // Inbound asset pull: the plugin UI eager-hydrates plan.assets from here.
-    const am = req.url && /^\/asset\/([A-Za-z0-9_-]+)\.([a-z0-9]+)$/.exec(req.url);
-    if (am) {
-      const staged = readInboundAsset(am[1]!);
-      if (!staged) {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        "Content-Type": staged.contentType,
-        "Content-Length": staged.bytes.length,
-      });
-      res.end(staged.bytes);
-      return;
-    }
-    // Anything else → the Plumb Studio SPA.
-    serveStudio(req, res);
-    return;
-  }
-  const m = req.url && /^\/upload\/([A-Za-z0-9_-]+)\.([a-z0-9]+)$/.exec(req.url);
-  if (!m || req.method !== "POST") {
-    res.writeHead(404);
-    res.end();
-    return;
-  }
-  const reqId = m[1]!;
-  const ext = m[2]!;
-  const path = join(tmpdir(), `plumb-${reqId}.${ext}`);
-  const out = createWriteStream(path);
-  req.pipe(out);
-  out.on("finish", () => {
-    stageUpload(reqId, path);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
-  });
-  out.on("error", (err) => {
-    log.error("upload write failed", { reqId, path, err });
-    res.writeHead(500);
-    res.end();
-  });
-}
+export { healthReport, renderMetrics, type HealthReport } from "./routes";
 
 /**
  * A connected Plumb Studio UI. Replays the recent event backlog, then streams
@@ -543,8 +393,11 @@ export async function startBridge(): Promise<void> {
   activeWss = wss;
   activeHttp = http;
   const sessionLabel = process.env.PLUMB_SESSION_NAME?.trim() || basename(process.cwd());
-  log.info("listening", { host: resolveBridgeHost(), port: chosen, session: sessionLabel });
-  if (studioAvailable()) {
+  log.info("listening", { host: resolveBridgeHost(), port: chosen, session: sessionLabel, keyed: !!pairSecret() });
+  if (!pairSecret() && !["127.0.0.1", "localhost", "::1"].includes(resolveBridgeHost())) {
+    log.warn("bridge is bound beyond loopback with no PLUMB_PAIR_SECRET — any plugin that reaches it can pair");
+  }
+  if (studioAvailable() && studioAllowed()) {
     log.info("Plumb Studio (live cockpit) available — run `plumb-mcp studio` to open it", {
       url: `http://${resolveBridgeHost()}:${chosen}/`,
     });
@@ -559,15 +412,37 @@ export async function startBridge(): Promise<void> {
     // Studio UIs connect to /studio — they only listen to the event bus, never
     // take part in the plugin pairing handshake.
     if (req.url && req.url.startsWith("/studio")) {
-      handleStudioClient(ws);
+      if (studioAllowed()) handleStudioClient(ws);
+      else ws.close(1008, "studio disabled");
       return;
     }
-    log.debug("connection", { origin: req.headers.origin ?? null });
+    const peer = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0]!.trim();
+    log.debug("connection", { origin: req.headers.origin ?? null, peer });
     send(ws, { t: "plumb-hello", serverVersion: SERVER_VERSION, sessionLabel });
 
     let thisPaired = false;
 
+    // Heartbeat: a sleeping laptop or a proxy can leave a dead socket "open"
+    // for minutes, holding the single pairing slot. Ping on an interval and
+    // drop a socket that stopped answering — but only once it has proven it
+    // answers pings at all, so a plugin build without pong is never cut off.
+    let lastHeard = Date.now();
+    let answersPing = false;
+    const hb = heartbeatMs();
+    const heartbeatTimer = hb
+      ? setInterval(() => {
+          if (answersPing && Date.now() - lastHeard > hb * 3) {
+            log.warn("plugin stopped answering — dropping the connection", { peer, silentMs: Date.now() - lastHeard });
+            ws.terminate();
+            return;
+          }
+          send(ws, { t: "ping" });
+        }, hb)
+      : undefined;
+    heartbeatTimer?.unref?.();
+
     ws.on("message", (raw) => {
+      lastHeard = Date.now();
       let msg: PluginMessage;
       try {
         msg = JSON.parse(String(raw)) as PluginMessage;
@@ -592,18 +467,36 @@ export async function startBridge(): Promise<void> {
     });
 
     function handlePluginMessage(msg: PluginMessage): void {
+      if (msg.t === "pong") answersPing = true;
+
       if (msg.t === "pair") {
+        // Key first: a client without it learns nothing, not even who is paired.
+        if (!secretMatches(msg.secret)) {
+          log.warn("pairing rejected: wrong key", { peer });
+          send(ws, { t: "pair-rejected", reason: "Wrong pairing key." });
+          ws.close(1008, "wrong key");
+          return;
+        }
         if (bridge.paired && !thisPaired) {
-          send(ws, { t: "pair-rejected", reason: "Another Plumb plugin is already paired." });
+          log.warn("pairing rejected: slot taken", { peer, machine: cleanLabel(msg.machine), pairedMachine: bridge.machine });
+          const who = bridge.machine ? ` (${bridge.machine})` : "";
+          send(ws, { t: "pair-rejected", reason: `Another Plumb plugin is already paired${who}.` });
+          return;
+        }
+        if (msg.fileName !== undefined && !fileAllowed(msg.fileName)) {
+          log.warn("pairing rejected: file not allowed", { peer, fileName: msg.fileName });
+          send(ws, { t: "pair-rejected", reason: `File "${msg.fileName}" is not allowed on this server.` });
           return;
         }
         bridge.paired = true;
         bridge.pluginVersion = msg.pluginVersion;
+        bridge.machine = cleanLabel(msg.machine);
         bridge.lastSeen = Date.now();
         thisPaired = true;
         pairedSocket = ws;
-        send(ws, { t: "paired" });
-        log.info("plugin paired", { pluginVersion: bridge.pluginVersion });
+        bridge.uploadToken = pairSecret() ? newUploadToken() : null;
+        send(ws, bridge.uploadToken ? { t: "paired", uploadToken: bridge.uploadToken } : { t: "paired" });
+        log.info("plugin paired", { pluginVersion: bridge.pluginVersion, machine: bridge.machine, peer });
         return;
       }
 
@@ -628,6 +521,14 @@ export async function startBridge(): Promise<void> {
         case "inventory": {
           if (!Array.isArray(msg.pages)) {
             log.warn("dropped inventory message", { reason: "`pages` is not an array" });
+            break;
+          }
+          if (!fileAllowed(msg.fileName)) {
+            // The pair message may not have carried the file name (older
+            // plugins) — the first inventory is where an unlisted file shows.
+            log.warn("pairing dropped: file not allowed", { peer, fileName: msg.fileName });
+            send(ws, { t: "pair-rejected", reason: `File "${msg.fileName}" is not allowed on this server.` });
+            ws.close(1008, "file not allowed");
             break;
           }
           bridge.inventory = { fileName: msg.fileName, pages: msg.pages };
@@ -656,11 +557,13 @@ export async function startBridge(): Promise<void> {
           // Plugin streams bytes via HTTP /upload/${reqId}-${i}.${ext}, then
           // sends this manifest over WS with `path: null`. Pull the bridge's
           // on-disk temp path for each asset by index. `list: true` mode skips
-          // uploads — those entries keep path = null.
-          const filled = msg.assets.map((a, i) => {
-            if (a.path !== null) return a;
-            return { ...a, path: takeUpload(`${msg.reqId}-${i}`) ?? null };
-          });
+          // uploads — those entries keep path = null. A path the plugin sends
+          // itself is never trusted: on a central server the plugin is another
+          // machine, and that path would be read, moved and inlined.
+          const filled = msg.assets.map((a, i) => ({
+            ...a,
+            path: takeUpload(`${msg.reqId}-${i}`) ?? null,
+          }));
           const ms = takeAssetRequestElapsed(msg.reqId);
           if (ms !== undefined) log.debug("assets reply", { count: filled.length, ms });
           resolvePending(msg.reqId, { assets: filled, error: msg.error });
@@ -669,7 +572,8 @@ export async function startBridge(): Promise<void> {
         case "screenshot": {
           resolvePending(msg.reqId, {
             path: takeUpload(msg.reqId) ?? null,
-            format: msg.format,
+            // The format becomes the file extension — never pass it through raw.
+            format: msg.format === "JPG" ? "JPG" : "PNG",
             nodeName: msg.nodeName,
             error: msg.error,
           });
@@ -738,6 +642,7 @@ export async function startBridge(): Promise<void> {
     }
 
     ws.on("close", () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (thisPaired) {
         pairedSocket = null;
         bridge.reset();

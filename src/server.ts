@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { setRegisteredTools, toolAllowlist } from "./hosted";
 import { SERVER_NAME, SERVER_VERSION } from "./meta";
 import { registerPlumbAssets } from "./tools/assets";
 import { registerPlumbAudit } from "./tools/audit";
@@ -33,7 +34,7 @@ import { registerPlumbVariables } from "./tools/variables";
 import { registerPlumbVerify } from "./tools/verify";
 import { registerPlumbVersions } from "./tools/versions";
 
-/** Builds the Plumb MCP server with all tools registered. */
+/** Builds the Plumb MCP server with its tools registered (filtered by {@link toolAllowlist}). */
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -77,6 +78,17 @@ export function createServer(): McpServer {
     },
   );
 
+  // ponytail: filter at registerTool so the per-tool register* functions stay
+  // untouched; none of them use the returned handle.
+  const allow = toolAllowlist();
+  const names: string[] = [];
+  const register = server.registerTool.bind(server) as (...a: unknown[]) => unknown;
+  server.registerTool = ((name: string, ...rest: unknown[]) => {
+    if (allow && !allow.has(name)) return undefined;
+    names.push(name);
+    return register(name, ...rest);
+  }) as typeof server.registerTool;
+
   registerPlumbStatus(server);
   registerPlumbOutline(server);
   registerPlumbNode(server);
@@ -113,5 +125,6 @@ export function createServer(): McpServer {
   registerPlumbStudioKit(server);
   registerPlumbStudioPage(server);
 
+  setRegisteredTools(names);
   return server;
 }

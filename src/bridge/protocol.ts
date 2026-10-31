@@ -435,7 +435,16 @@ export interface ApplyProgressMessage {
 
 /** Messages the plugin (WebSocket client) sends to the server. */
 export type PluginMessage =
-  | { t: "pair"; pluginVersion: string }
+  | {
+      t: "pair";
+      pluginVersion: string;
+      /** Pairing key — required when the server sets PLUMB_PAIR_SECRET. */
+      secret?: string;
+      /** Human label for the machine running Figma, e.g. "Office PC". */
+      machine?: string;
+      /** Name of the Figma file the plugin is running in, when known. */
+      fileName?: string;
+    }
   | {
       t: "selection";
       nodeId: string | null;
@@ -486,7 +495,8 @@ export type PluginMessage =
 /** Messages the server sends back to the plugin. */
 export type ServerMessage =
   | { t: "plumb-hello"; serverVersion: string; sessionLabel: string }
-  | { t: "paired" }
+  /** `uploadToken` (keyed servers only) must be appended as `?k=` to /upload and /asset URLs. */
+  | { t: "paired"; uploadToken?: string }
   | { t: "pair-rejected"; reason: string }
   | { t: "get-node"; reqId: string; nodeId: string }
   | { t: "get-selection"; reqId: string }

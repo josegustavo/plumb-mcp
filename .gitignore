@@ -35,3 +35,6 @@ coverage/
 crash.log
 *.tfvars
 !*.tfvars.example
+
+# Packaged plugin zips (npm run package:plugin)
+dist-plugin/

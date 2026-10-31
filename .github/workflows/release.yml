@@ -16,6 +16,9 @@ on:
 
 jobs:
   publish:
+    # npm + Registry publishing belongs to the canonical repo; forks tag too
+    # (for their own image and plugin zip) and must not try to publish.
+    if: github.repository == 'tathagat22/plumb-mcp'
     runs-on: ubuntu-latest
     permissions:
       id-token: write    # required for `mcp-publisher login github-oidc`

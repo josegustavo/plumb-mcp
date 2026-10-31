@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   renameSync,
   statSync,
@@ -106,7 +107,9 @@ export function writeAssets(
     const base = slug(asset.name) || "asset";
     let file = `${base}.${ext}`;
     let n = 2;
-    while (used.has(file)) file = `${base}-${n++}.${ext}`;
+    // Never overwrite an earlier export in the same folder (two calls that
+    // both export a layer named "group" used to clobber each other).
+    while (used.has(file) || existsSync(join(dir, file))) file = `${base}-${n++}.${ext}`;
     used.add(file);
 
     const fullPath = join(dir, file);

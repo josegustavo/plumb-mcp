@@ -73,6 +73,10 @@ class BridgeStore {
   /** Whether a plugin has completed the one-time pairing. */
   paired = false;
   pluginVersion: string | null = null;
+  /** Machine label the paired plugin sent (e.g. "Office PC"), if any. */
+  machine: string | null = null;
+  /** Per-pairing token /upload and /asset require when the bridge is keyed (PLUMB_PAIR_SECRET). */
+  uploadToken: string | null = null;
   /** The latest selection notice from the paired plugin — id only, no doc. */
   selection: BridgeSelection | null = null;
   /** The file's screen inventory (all pages → top-level frames). */
@@ -99,6 +103,8 @@ class BridgeStore {
   reset(): void {
     this.paired = false;
     this.pluginVersion = null;
+    this.machine = null;
+    this.uploadToken = null;
     this.selection = null;
     this.inventory = null;
     this.fileVersion = 0;

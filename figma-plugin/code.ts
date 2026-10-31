@@ -35,9 +35,18 @@ figma.ui.onmessage = (message: {
   reqId?: string;
   index?: number;
   error?: string | null;
+  remote?: unknown;
+  height?: number;
 }) => {
   if (!message || typeof message.type !== "string") return;
   switch (message.type) {
+    case "save-remote":
+      // { url, key, machine } for a central Plumb server — per user, per machine.
+      void figma.clientStorage.setAsync("plumb-remote", message.remote ?? null);
+      break;
+    case "resize":
+      if (typeof message.height === "number") figma.ui.resize(PANEL.w, Math.max(PANEL.h, message.height));
+      break;
     case "resync":
       pushSelection();
       pushInventory();
@@ -71,7 +80,8 @@ async function start(): Promise<void> {
   // of the file into memory the moment the plugin opens. Plumb watches only the
   // page you're on and loads others when a request needs them (see inventory).
   const wasPaired = (await figma.clientStorage.getAsync("plumb-paired")) === true;
-  figma.ui.postMessage({ type: "init", autoPair: wasPaired });
+  const remote: unknown = await figma.clientStorage.getAsync("plumb-remote");
+  figma.ui.postMessage({ type: "init", autoPair: wasPaired, remote: remote ?? null, fileName: figma.root.name });
 
   figma.on("selectionchange", pushSelection);
 

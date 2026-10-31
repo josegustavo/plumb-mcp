@@ -2,6 +2,7 @@ import { flatScreens } from "../bridge/inventory";
 import { bridge } from "../bridge/store";
 import { KEY_LEGEND } from "../keylegend";
 import { SERVER_NAME, SERVER_VERSION } from "../meta";
+import { registeredTools } from "../hosted";
 import { ok } from "./shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -41,6 +42,7 @@ export function registerPlumbStatus(server: McpServer): void {
           connected: bridge.paired,
           bridgePort: bridge.port,
           pluginVersion: bridge.pluginVersion,
+          ...(bridge.machine ? { machine: bridge.machine } : {}),
           fileName: bridge.inventory?.fileName ?? null,
           screens: screenCount,
           ...(unloadedPages > 0 ? { unloadedPages } : {}),
@@ -57,39 +59,7 @@ export function registerPlumbStatus(server: McpServer): void {
             ? "FIGMA_TOKEN is set — the REST tools are ready."
             : "Set FIGMA_TOKEN to use the REST tools (figma.com → Settings → Security).",
         },
-        tools: [
-          "plumb_status",
-          "plumb_outline",
-          "plumb_node",
-          "plumb_tokens",
-          "plumb_selection",
-          "plumb_assets",
-          "plumb_screenshot",
-          "plumb_describe",
-          "plumb_search",
-          "plumb_components",
-          "plumb_variables",
-          "plumb_comments",
-          "plumb_versions",
-          "plumb_verify",
-          "plumb_fit",
-          "plumb_query",
-          "plumb_fig_outline",
-          "plumb_fig_node",
-          "plumb_diff",
-          "plumb_audit",
-          "plumb_import_web",
-          "plumb_emit_react",
-          "plumb_scan_references",
-          "plumb_design",
-          "plumb_brand",
-          "plumb_studio",
-          "plumb_source",
-          "plumb_review",
-          "plumb_studio_start",
-          "plumb_studio_kit",
-          "plumb_studio_page",
-        ],
+        tools: [...registeredTools()],
         legend: KEY_LEGEND,
         budget: {
           mcpCeiling: 25000,

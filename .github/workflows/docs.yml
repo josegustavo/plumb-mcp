@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # Pages hosts the canonical docs site; a fork has no Pages site to deploy.
+    if: github.repository == 'tathagat22/plumb-mcp'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

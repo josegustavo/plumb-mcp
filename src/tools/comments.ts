@@ -84,7 +84,7 @@ export function registerPlumbComments(server: McpServer): void {
             "Pass `url` (any link to the file) or `fileKey`.",
           );
         }
-        const raw = await fetchComments(fileKey, requireToken());
+        const raw = await fetchComments(fileKey, requireToken(true));
         const threads = threadComments(raw, { includeResolved: args.includeResolved, nodeIds: args.nodeIds });
         return ok({
           source: "rest",

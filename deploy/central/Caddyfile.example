@@ -1,0 +1,18 @@
+# Inside your site block (e.g. example.com { ... }), BEFORE the catch-all
+# reverse_proxy of the main app. Only the plugin needs this route; /mcp stays
+# internal (your gateway calls http://plumb:8080/mcp on the shared network).
+#
+# Use a path that names what it is plus a random suffix — e.g.
+# /plumb-bridge-7f3k9q — and the same URL in the plugin's Server… settings.
+
+handle_path /plumb-bridge-CHANGE-ME/* {
+	# Only the Figma machine's network (office VPN egress IP, etc.).
+	@outside not remote_ip 203.0.113.10/32
+	respond @outside 403
+
+	# Caddy proxies the WebSocket upgrade and the upload POSTs as-is.
+	reverse_proxy plumb:31337 {
+		# The plugin socket is long-lived; the bridge pings every 20 s.
+		flush_interval -1
+	}
+}

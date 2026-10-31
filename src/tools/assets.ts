@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { formatScreenMatches, resolveScreen, screenName } from "../bridge/inventory";
 import { requestAssets } from "../bridge/server";
 import { bridge } from "../bridge/store";
-import { writeAssets } from "../assets";
+import { writeAssets, type WrittenAsset } from "../assets";
+import { inlineMaxBytes, isHosted } from "../hosted";
 import { PlumbError } from "../errors";
 import { fail, ok } from "./shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,6 +19,41 @@ const DESCRIPTION =
   "what's there.\n" +
   "  • Surgical — `ids: [...]` → export exactly those node ids (one file " +
   "each, no recursion). Preferred once you know what you need.";
+
+const IMAGE_MIME: Record<string, string> = {
+  PNG: "image/png",
+  JPG: "image/jpeg",
+  GIF: "image/gif",
+  WEBP: "image/webp",
+};
+
+/**
+ * Inline mode: bitmaps too big for a `data:` URI (no `source` on the row) ride
+ * as MCP image blocks after the JSON, in row order, until the response holds
+ * {@link inlineMaxBytes} of images. A row whose bytes were attached gets
+ * `image: true`; the rest keep only their server-side `path`.
+ */
+function withImageBlocks(
+  inline: boolean,
+  written: WrittenAsset[],
+  result: { content: Array<{ type: "text"; text: string }> },
+) {
+  if (!inline) return result;
+  let budget = inlineMaxBytes();
+  const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  const attached = new Set<string>();
+  for (const w of written) {
+    const mimeType = IMAGE_MIME[w.format];
+    if (w.source !== undefined || !mimeType || w.bytes > budget) continue;
+    images.push({ type: "image", data: readFileSync(w.path).toString("base64"), mimeType });
+    attached.add(w.path);
+    budget -= w.bytes;
+  }
+  if (!images.length) return result;
+  const payload = JSON.parse(result.content[0]!.text) as { assets: Array<{ path: string; image?: true }> };
+  for (const row of payload.assets) if (attached.has(row.path)) row.image = true;
+  return { content: [{ type: "text" as const, text: JSON.stringify(payload) }, ...images] };
+}
 
 /** Registers the `plumb_assets` MCP tool (plan §8). */
 export function registerPlumbAssets(server: McpServer): void {
@@ -57,9 +94,10 @@ export function registerPlumbAssets(server: McpServer): void {
           .optional()
           .describe(
             "Return asset bytes inline on each row: SVGs as raw markup, " +
-              "bitmaps under 64KB as a data: URI. Useful for dropping SVG " +
-              "icons straight into JSX without re-reading from disk. Files " +
-              "are still written; this is additive.",
+              "bitmaps under 64KB as a data: URI, larger bitmaps as MCP image " +
+              "blocks after the JSON (rows marked `image: true`). Files are " +
+              "still written; this is additive. Default true on a hosted " +
+              "(`plumb-mcp serve`) server, false otherwise.",
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
@@ -75,7 +113,7 @@ export function registerPlumbAssets(server: McpServer): void {
 
         const list = args.list === true;
         const raw = args.raw === true;
-        const inline = args.inline === true;
+        const inline = args.inline ?? isHosted();
 
         // --- Surgical mode — specific ids ----------------------------------
         if (args.ids && args.ids.length > 0) {
@@ -105,7 +143,7 @@ export function registerPlumbAssets(server: McpServer): void {
           }
           const folder = args.name || (args.id ? screenName(args.id) : "") || "specific";
           const { dir, written } = writeAssets(folder, assets, { inline });
-          return ok({
+          return withImageBlocks(inline, written, ok({
             source: "plugin",
             mode: "specific",
             dir,
@@ -125,7 +163,7 @@ export function registerPlumbAssets(server: McpServer): void {
                 : inline
                   ? "Each row has either `source` (SVG markup or data: URI) or just `path`. Drop SVG `source` straight into JSX."
                   : "Use these file paths when building.",
-          });
+          }));
         }
 
         // --- Screen-scoped modes (default or list) -------------------------
@@ -177,7 +215,7 @@ export function registerPlumbAssets(server: McpServer): void {
         }
 
         const { dir, written } = writeAssets(sname, assets, { inline });
-        return ok({
+        return withImageBlocks(inline, written, ok({
           source: "plugin",
           dir,
           count: written.length,
@@ -196,7 +234,7 @@ export function registerPlumbAssets(server: McpServer): void {
               : inline
                 ? "Each row has either `source` (SVG markup or data: URI) or just `path`. Drop SVG `source` straight into JSX."
                 : "Use these file paths when building. Tip: pass `list: true` first to peek without downloading; then `ids: [...]` to pull just what you need.",
-        });
+        }));
       } catch (e) {
         return fail(e);
       }

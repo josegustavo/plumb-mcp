@@ -115,7 +115,11 @@ ENV PLUMB_BRIDGE_PORT=31337
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PLUMB_BRIDGE_PORT||31337)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# 31337: the plugin bridge. 8080: MCP over HTTP when run as `serve` (a central
+# server — see deploy/central/). Neither is published unless you publish it.
+EXPOSE 31337 8080
+
 # stdio is the default MCP transport — the AI client spawns this process and
-# talks to it over stdin/stdout. Pass `demo` to run the offline walkthrough
-# instead, or `--help` for the full command list.
+# talks to it over stdin/stdout. Pass `serve` for the central HTTP server,
+# `demo` to run the offline walkthrough, or `--help` for the full command list.
 ENTRYPOINT ["node", "dist/index.js"]
