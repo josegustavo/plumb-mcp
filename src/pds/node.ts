@@ -65,6 +65,34 @@ export interface PdsNode {
   strokeStyle?: string;
   textStyle?: string;
   effectStyle?: string;
+  gridStyle?: string;
+  /**
+   * Layout grids drawn on the frame (the designer's columns / rows):
+   * count, gutter and margin in px, alignment, and `size` for fixed-width
+   * sections. Hidden grids are skipped.
+   */
+  grids?: Array<{
+    pattern: "columns" | "rows" | "grid";
+    count?: number;
+    gutter?: number;
+    margin?: number;
+    align?: "min" | "max" | "stretch" | "center";
+    size?: number;
+  }>;
+  /** Cell of a child inside a Grid auto-layout parent — 1-based, CSS `grid-column` / `grid-row`. */
+  gridCell?: { col: number; row: number; colSpan?: number; rowSpan?: number };
+  /** Dev Mode annotations on the node (markdown label + measured properties). */
+  annotations?: string[];
+  /** Dev Mode status: "ready-for-dev" or "completed". */
+  devStatus?: "ready-for-dev" | "completed";
+  /** Description attached to the dev status. */
+  devNote?: string;
+  /** Export presets set in Figma, e.g. `"PNG@2x"`, `"SVG"`, `"JPG w800 -hero"`. */
+  export?: string[];
+  /** Layer is hidden in Figma. Only present when `includeHidden` was requested. */
+  hidden?: true;
+  /** Fills turned off in Figma (eye icon). Only present when `includeHidden` was requested. */
+  hiddenFills?: Fill[];
   /**
    * Full fill stack, bottom-up. Emitted whenever the single-string `fill`
    * representation would be lossy — i.e. multiple paints layered, a
@@ -164,6 +192,20 @@ export interface PdsNode {
    * style sits on `text` / `fill`; per-run overrides ride on the run.
    */
   chars?: string | PdsTextRun[];
+  /** Link target of the whole text — a URL, or `#node:<id>` for a link to another frame. */
+  href?: string;
+  /** Every line is a list item: `"ul"` (bullets) or `"ol"` (numbers). */
+  list?: "ul" | "ol";
+  /** Mixed list / non-list lines, one entry per line (`null` = plain line). */
+  listLines?: Array<"ul" | "ol" | null>;
+  /** Space between paragraphs in px (CSS margin between `<p>`s). */
+  paraGap?: number;
+  /** First-line indent in px (CSS `text-indent`). */
+  paraIndent?: number;
+  /** Text is cut with an ellipsis after this many lines (`line-clamp`). */
+  maxLines?: number;
+  /** Vertical text alignment inside a fixed-height box, when not top. */
+  textValign?: "center" | "bottom";
   /**
    * mainComponent id (INSTANCE nodes only). May arrive as a structured
    * object `{ id, variant: "Size=md,Style=primary" }` (v0.10+) when the

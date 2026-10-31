@@ -31,6 +31,7 @@ import {
 import { registerPlumbTokens } from "./tools/tokens";
 import { registerPlumbVariables } from "./tools/variables";
 import { registerPlumbVerify } from "./tools/verify";
+import { registerPlumbVersions } from "./tools/versions";
 
 /** Builds the Plumb MCP server with all tools registered. */
 export function createServer(): McpServer {
@@ -52,7 +53,8 @@ export function createServer(): McpServer {
         "plumb_search finds nodes; plumb_components lists components and " +
         "instances; plumb_variables lists Figma Variables and named styles " +
         "with their values; plumb_comments reads the file's comment threads " +
-        "(REST, needs FIGMA_TOKEN); plumb_verify diffs your rendered layout against the design " +
+        "and plumb_versions its version history (both REST, need FIGMA_TOKEN); " +
+        "plumb_node's includeHidden also returns hidden layers; plumb_verify diffs your rendered layout against the design " +
         "and returns structured deltas; plumb_fit wraps that diff in a 0–100 " +
         "convergence score + prioritised fixes so you can iterate to a " +
         "pixel-perfect match (build → plumb_fit → fix → repeat until done); " +
@@ -87,6 +89,7 @@ export function createServer(): McpServer {
   registerPlumbComponents(server);
   registerPlumbVariables(server);
   registerPlumbComments(server);
+  registerPlumbVersions(server);
   registerPlumbVerify(server);
   registerPlumbFit(server);
   registerPlumbQuery(server);

@@ -200,6 +200,15 @@ export function paintsToFillStack(paints: FigmaPaint[] | undefined): Fill[] | un
   return out.length ? out : undefined;
 }
 
+/** Fills switched off in Figma (eye icon) — e.g. an alternative photo kept under the visible one. */
+export function hiddenFillStack(paints: FigmaPaint[] | undefined): Fill[] | undefined {
+  const out = (paints ?? [])
+    .filter((p) => p && p.visible === false)
+    .map((p) => fillOf({ ...p, visible: true }))
+    .filter((f): f is Fill => !!f);
+  return out.length ? out : undefined;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Type style                                                              */
 /* ---------------------------------------------------------------------- */
@@ -213,7 +222,8 @@ export function typeStyleToCss(s: FigmaTypeStyle | undefined): string | undefine
     s.lineHeightPx != null && s.fontSize ? `/${round(s.lineHeightPx / s.fontSize, 2)}` : "";
   const family = s.fontFamily ? ` ${s.fontFamily}` : "";
   const tracking = s.letterSpacing ? ` ${round(s.letterSpacing, 2)}px` : "";
-  return `${weight} ${size}px${lh}${family}${tracking}`;
+  const italic = s.italic ? "italic " : "";
+  return `${italic}${weight} ${size}px${lh}${family}${tracking}`;
 }
 
 /* ---------------------------------------------------------------------- */

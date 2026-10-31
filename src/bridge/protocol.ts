@@ -43,6 +43,10 @@ export interface ComponentInfo {
   w: number;
   h: number;
   instanceCount: number;
+  /** Documentation links set on the component in Figma. */
+  docs?: string[];
+  /** Component property definitions (variant / boolean / text / instance-swap). */
+  properties?: Array<{ name: string; type: string; default: unknown; options?: string[] }>;
 }
 
 /** One local variable collection, values keyed by mode name. Raw plugin

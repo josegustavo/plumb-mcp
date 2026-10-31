@@ -9,11 +9,13 @@
 export type Flow = "row" | "col" | "grid";
 
 export interface PdsLayout {
-  /** flex-direction — or `"grid"` for a CSS Grid container (web adapter
-   *  only; Figma has no native Grid concept, so `normalize()` never
-   *  produces this value). When `flow === "grid"`, `columns`/`rows` carry
-   *  the grid-specific shape and `justify`/`align`/`wrap` don't apply. */
+  /** flex-direction — or `"grid"` for a CSS Grid container (the web adapter,
+   *  or a Figma frame using Grid auto-layout). When `flow === "grid"`,
+   *  `columns`/`rows` carry the grid-specific shape and `justify`/`align`/`wrap`
+   *  don't apply. */
   flow: Flow;
+  /** CSS `align-content` for wrapped rows — only `"space-between"` is emitted. */
+  alignContent?: "space-between";
   /** itemSpacing → gap (flex) — or grid column-gap when `flow === "grid"`. */
   gap?: number;
   /** counterAxisSpacing on a wrapping container (flex) — or grid row-gap
@@ -84,6 +86,10 @@ export interface PdsTextRun {
   /** `textCase` override — a differently-cased word/link within a run of
    *  otherwise-uncased text. Omit if matches the node's dominant `textCase`. */
   tc?: "UPPER" | "LOWER" | "TITLE";
+  /** Link target — a URL, or `#node:<id>` for a link to another frame. */
+  h?: string;
+  /** Name of the Figma text style on this run, when it differs from the node's. */
+  st?: string;
 }
 
 /** A single colour stop inside a gradient fill. `at` is 0..1. */

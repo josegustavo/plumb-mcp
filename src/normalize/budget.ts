@@ -23,7 +23,7 @@ export function normalizeToBudget(
   // Build the depth-independent el/handle map exactly once — every depth-step
   // iteration shares the same handles, so re-running this on each retry was
   // pure overhead (audit-flagged for v0.10 Phase 0).
-  const precomputed = buildPreWalk(file);
+  const precomputed = buildPreWalk(file, opts.includeHidden);
   const baseOpts = { ...opts, precomputed };
 
   let pds = normalize(file, depth, baseOpts);

@@ -70,6 +70,7 @@ export function registerPlumbStatus(server: McpServer): void {
           "plumb_components",
           "plumb_variables",
           "plumb_comments",
+          "plumb_versions",
           "plumb_verify",
           "plumb_fit",
           "plumb_query",

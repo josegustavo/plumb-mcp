@@ -129,13 +129,38 @@ export interface RestComment {
   client_meta?: { node_id?: string; node_offset?: { x: number; y: number }; x?: number; y?: number } | null;
 }
 
+/** One saved version from the file's version history. */
+export interface RestVersion {
+  id: string;
+  created_at: string;
+  label?: string | null;
+  description?: string | null;
+  user?: { handle?: string };
+}
+
 /**
  * Every comment on a file. The plugin API cannot read comments, so this is
  * REST-only. Comments sit in Figma's Tier 2 rate limit (per-minute), not the
  * Tier 1 per-month cap that file/node reads hit on Starter plans.
  */
 export async function fetchComments(fileKey: string, token: string): Promise<RestComment[]> {
-  const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/comments`;
+  const json = await tier2Get<{ comments?: RestComment[] }>(fileKey, "comments", token);
+  return Array.isArray(json.comments) ? json.comments : [];
+}
+
+/** The most recent `pageSize` (max 50) entries of the file's version history. Tier 2. */
+export async function fetchVersions(fileKey: string, token: string, pageSize: number): Promise<RestVersion[]> {
+  const json = await tier2Get<{ versions?: RestVersion[] }>(
+    fileKey,
+    `versions?page_size=${Math.min(Math.max(pageSize, 1), 50)}`,
+    token,
+  );
+  return Array.isArray(json.versions) ? json.versions : [];
+}
+
+/** GET `/v1/files/:key/<path>` for a Tier 2 endpoint. A 429 surfaces Retry-After and is never retried. */
+async function tier2Get<T>(fileKey: string, path: string, token: string): Promise<T> {
+  const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/${path}`;
 
   let res: Awaited<ReturnType<typeof fetch>>;
   try {
@@ -153,15 +178,13 @@ export async function fetchComments(fileKey: string, token: string): Promise<Res
   if (res.status === 429) {
     const wait = Number(res.headers.get("retry-after"));
     throw new PlumbError(
-      "Figma rate-limited the comments request (HTTP 429)" +
+      `Figma rate-limited the ${path.split("?")[0]} request (HTTP 429)` +
         (Number.isFinite(wait) && wait > 0 ? `; Retry-After ${Math.ceil(wait)}s.` : "."),
       "Do not retry before Retry-After has passed — every retry counts against the same quota.",
     );
   }
   if (!res.ok) throw restError(res.status, fileKey);
-
-  const json = (await res.json()) as { comments?: RestComment[] };
-  return Array.isArray(json.comments) ? json.comments : [];
+  return (await res.json()) as T;
 }
 
 function restError(status: number, fileKey: string): PlumbError {

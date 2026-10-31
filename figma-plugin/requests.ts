@@ -200,6 +200,25 @@ export async function handleGetComponents(reqId: string): Promise<void> {
           instanceCount: 0,
         };
         if (n.description) c.description = n.description;
+        const docs = (n.documentationLinks ?? []).map((d: DocumentationLink) => d.uri).filter(Boolean);
+        if (docs.length) c.docs = docs;
+        // Property definitions live on the set and on standalone components;
+        // the getter throws on a variant inside a set.
+        if (n.type === "COMPONENT_SET" || n.parent?.type !== "COMPONENT_SET") {
+          try {
+            const defs = Object.entries(n.componentPropertyDefinitions ?? {}).map(
+              ([key, d]: [string, any]) => ({
+                name: key.replace(/#[^#]*$/, ""),
+                type: d.type,
+                default: d.defaultValue,
+                ...(d.variantOptions ? { options: d.variantOptions } : {}),
+              }),
+            );
+            if (defs.length) c.properties = defs;
+          } catch {
+            // Component set with errors — skip its property definitions.
+          }
+        }
         components.push(c);
       } else if (n.type === "INSTANCE") {
         instanceNodes.push({ node: n, page });

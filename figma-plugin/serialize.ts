@@ -28,6 +28,13 @@ const WEIGHTS: Record<string, number> = {
   demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, black: 900, heavy: 900,
 };
 
+const ITALIC_RE = /italic|oblique/i;
+
+/** Plugin hyperlink → the REST `Hyperlink` shape normalize() reads. */
+function restLink(h: HyperlinkTarget): { type: string; url?: string; nodeID?: string } {
+  return h.type === "URL" ? { type: "URL", url: h.value } : { type: "NODE", nodeID: h.value };
+}
+
 export function weightOf(styleName: string): number {
   return WEIGHTS[styleName.toLowerCase().replace(/\s+|italic|oblique/g, "")] ?? 400;
 }
@@ -204,6 +211,7 @@ const STYLE_FIELDS = [
   ["strokeStyleId", "strokeStyle"],
   ["textStyleId", "textStyle"],
   ["effectStyleId", "effectStyle"],
+  ["gridStyleId", "gridStyle"],
 ] as const;
 
 /**
@@ -234,6 +242,12 @@ function collectStyleIds(node: SceneNode, remainingDepth: number | undefined, ou
     for (const [key] of STYLE_FIELDS) {
       const id = n[key];
       if (typeof id === "string" && id) out.add(id);
+    }
+    // Mixed-style text: each run can carry its own text style.
+    if (node.type === "TEXT" && node.textStyleId === figma.mixed) {
+      for (const seg of node.getStyledTextSegments(["textStyleId"])) {
+        if (seg.textStyleId) out.add(seg.textStyleId);
+      }
     }
     if (remainingDepth === 0 || !("children" in node)) return;
     const next = remainingDepth === undefined ? undefined : remainingDepth - 1;
@@ -316,8 +330,62 @@ export function serialize(
     out.counterAxisAlignItems = n.counterAxisAlignItems;
     if (n.layoutWrap) out.layoutWrap = n.layoutWrap;
     if (typeof n.counterAxisSpacing === "number") out.counterAxisSpacing = n.counterAxisSpacing;
+    if (n.layoutWrap === "WRAP" && n.counterAxisAlignContent === "SPACE_BETWEEN") {
+      out.counterAxisAlignContent = "SPACE_BETWEEN";
+    }
+    // Figma's native Grid auto-layout: track counts, sizes and gaps.
+    if (n.layoutMode === "GRID") {
+      const tracks = (sizes: unknown) =>
+        Array.isArray(sizes) ? sizes.map((s: GridTrackSize) => ({ type: s.type, value: s.value })) : undefined;
+      out.gridRowCount = n.gridRowCount;
+      out.gridColumnCount = n.gridColumnCount;
+      out.gridRowGap = n.gridRowGap;
+      out.gridColumnGap = n.gridColumnGap;
+      out.gridRowSizes = tracks(n.gridRowSizes);
+      out.gridColumnSizes = tracks(n.gridColumnSizes);
+    }
   }
   if (n.layoutPositioning === "ABSOLUTE") out.layoutPositioning = "ABSOLUTE";
+  // A child of a Grid auto-layout frame: its cell (0-based anchor + span).
+  try {
+    const parent = node.parent as unknown as Record<string, unknown> | null;
+    if (parent?.layoutMode === "GRID" && n.layoutPositioning !== "ABSOLUTE") {
+      out.gridRowAnchorIndex = n.gridRowAnchorIndex;
+      out.gridColumnAnchorIndex = n.gridColumnAnchorIndex;
+      out.gridRowSpan = n.gridRowSpan;
+      out.gridColumnSpan = n.gridColumnSpan;
+    }
+  } catch {
+    // Grid child getters unavailable — layout falls back to flow order.
+  }
+
+  // Layout grids (column / row / grid guides) drawn on the frame — the
+  // designer's columns, gutters and margins.
+  if (Array.isArray(n.layoutGrids) && n.layoutGrids.length > 0) {
+    out.layoutGrids = n.layoutGrids.map((g: LayoutGrid) => ({ ...g }));
+  }
+  // Dev Mode hand-off: annotations and "Ready for dev" / "Completed" status.
+  try {
+    if (Array.isArray(n.annotations) && n.annotations.length > 0) {
+      out.annotations = n.annotations.map((a: Annotation) => ({
+        label: a.labelMarkdown ?? a.label ?? "",
+        properties: (a.properties ?? []).map((p) => p.type),
+      }));
+    }
+    if (n.devStatus && typeof n.devStatus.type === "string") {
+      out.devStatus = { type: n.devStatus.type, description: n.devStatus.description };
+    }
+  } catch {
+    // Annotations / dev status not readable in this editor mode.
+  }
+  // Export presets the designer set up (format, scale/size, suffix).
+  if (Array.isArray(n.exportSettings) && n.exportSettings.length > 0) {
+    out.exportSettings = n.exportSettings.map((s: ExportSettings) => ({
+      format: s.format,
+      suffix: "suffix" in s ? s.suffix : undefined,
+      constraint: "constraint" in s ? s.constraint : undefined,
+    }));
+  }
 
   // Per-child auto-layout sizing — only meaningful when the parent has
   // auto-layout, but cheap to always emit. Lets agents render flex children
@@ -481,7 +549,36 @@ export function serialize(
     if (t.textCase && t.textCase !== figma.mixed && t.textCase !== "ORIGINAL") {
       style.textCase = t.textCase;
     }
+    // REST TypeStyle field names, so normalize() reads both paths the same way.
+    if (t.fontName !== figma.mixed && ITALIC_RE.test(t.fontName.style)) style.italic = true;
+    if (t.textAlignVertical !== "TOP") style.textAlignVertical = t.textAlignVertical;
+    if (typeof t.paragraphSpacing === "number" && t.paragraphSpacing > 0) {
+      style.paragraphSpacing = t.paragraphSpacing;
+    }
+    if (typeof t.paragraphIndent === "number" && t.paragraphIndent > 0) {
+      style.paragraphIndent = t.paragraphIndent;
+    }
+    if (t.textTruncation === "ENDING" && typeof t.maxLines === "number") {
+      style.textTruncation = "ENDING";
+      style.maxLines = t.maxLines;
+    }
+    if (t.hyperlink && t.hyperlink !== figma.mixed) style.hyperlink = restLink(t.hyperlink);
     out.style = style;
+
+    // Bulleted / numbered lines, REST-style: one entry per line.
+    try {
+      const listSegs = t.getStyledTextSegments(["listOptions"]);
+      const lineTypes: string[] = [];
+      let idx = 0;
+      for (const line of t.characters.split("\n")) {
+        const seg = listSegs.find((s) => idx >= s.start && idx < s.end) ?? listSegs[listSegs.length - 1];
+        lineTypes.push(seg?.listOptions?.type ?? "NONE");
+        idx += line.length + 1;
+      }
+      if (lineTypes.some((x) => x !== "NONE")) out.lineTypes = lineTypes;
+    } catch {
+      // listOptions unsupported on this text node — no list info.
+    }
 
     // v0.10 Phase 3 — capture styled segments so mixed-style text (a bold
     // word inside a sentence, a coloured link, etc.) survives the round-trip
@@ -496,6 +593,8 @@ export function serialize(
         "letterSpacing",
         "textDecoration",
         "textCase",
+        "hyperlink",
+        "textStyleId",
       ]);
       if (segments.length > 1) {
         out.characterRuns = segments.map((seg) => {
@@ -504,6 +603,7 @@ export function serialize(
           if (seg.fontName) {
             runStyle.fontFamily = seg.fontName.family;
             runStyle.fontWeight = weightOf(seg.fontName.style);
+            if (ITALIC_RE.test(seg.fontName.style)) runStyle.italic = true;
           }
           if (seg.lineHeight) {
             if (seg.lineHeight.unit === "PIXELS") {
@@ -524,10 +624,13 @@ export function serialize(
           if (seg.textCase && seg.textCase !== "ORIGINAL") {
             runStyle.textCase = seg.textCase;
           }
+          if (seg.hyperlink) runStyle.hyperlink = restLink(seg.hyperlink);
           const runOut: Record<string, unknown> = {
             characters: seg.characters,
             style: runStyle,
           };
+          const runStyleName = seg.textStyleId ? styleMap?.get(seg.textStyleId) : undefined;
+          if (runStyleName) runOut.textStyle = runStyleName;
           // Per-run fills — only emit when this segment's fills diverge from
           // the node's dominant fills. The normalizer interns matching fills
           // to the same colour token so identical runs don't duplicate.

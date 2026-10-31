@@ -21,7 +21,8 @@ import {
 } from "./fidelity";
 import { HandleMinter } from "./handles";
 import { toLayout } from "./layout";
-import { backdropFilterCss, effectsToStack, paintsToFillStack, topSolidVar } from "./paint";
+import { handoffProps, linkHref, textExtras } from "./extras";
+import { backdropFilterCss, effectsToStack, hiddenFillStack, paintsToFillStack, topSolidVar } from "./paint";
 import { TokenInterner } from "./tokens";
 import { applySemanticEnrichers } from "../semantic";
 import { detectSuspiciousText } from "./typo";
@@ -53,6 +54,8 @@ export interface NormalizeOptions {
   notes?: boolean;
   /** Soft token budget; the response flags itself if it exceeds this. */
   maxTokens?: number;
+  /** Keep hidden layers (marked `hidden: true`) and switched-off fills (`hiddenFills`). */
+  includeHidden?: boolean;
   /**
    * Pre-built el/minter state. When provided, normalize skips its own preWalk
    * and reuses this state — used by `normalizeToBudget` so multi-iteration
@@ -78,7 +81,7 @@ export interface PrecomputedHandles {
  * from `elById` (e.g. an invisible root that's now being emitted at level 0)
  * can mint a fresh handle without colliding with existing ones.
  */
-export function buildPreWalk(file: FigmaFileResult): PrecomputedHandles {
+export function buildPreWalk(file: FigmaFileResult, includeHidden = false): PrecomputedHandles {
   const minter = new HandleMinter();
   const elById = new Map<string, string>();
   // Walk visible nodes only — invisible subtrees never appear in PDS, so
@@ -97,9 +100,9 @@ export function buildPreWalk(file: FigmaFileResult): PrecomputedHandles {
   const stack: { node: FigmaNode; level: number }[] = [{ node: file.document, level: 0 }];
   while (stack.length > 0) {
     const { node: fn, level } = stack.pop()!;
-    if (level > 0 && fn.visible === false) continue;
+    if (level > 0 && fn.visible === false && !includeHidden) continue;
     elById.set(fn.id, minter.mint(fn.name ?? "", fn.type ?? ""));
-    const kids = (fn.children ?? []).filter((k) => k.visible !== false);
+    const kids = (fn.children ?? []).filter((k) => includeHidden || k.visible !== false);
     for (let i = kids.length - 1; i >= 0; i--) {
       stack.push({ node: kids[i]!, level: level + 1 });
     }
@@ -124,7 +127,7 @@ export function normalize(
   // otherwise walk the tree to build them. The pre-pass is depth-independent
   // — the el assignment doesn't change between iterations — so reusing it
   // turns a multi-step budget loop from N walks into 1.
-  const { elById, minter } = opts.precomputed ?? buildPreWalk(file);
+  const { elById, minter } = opts.precomputed ?? buildPreWalk(file, opts.includeHidden);
 
   // Surfaces of interest for inheritedFill — nodes a renderer would tag with
   // `background:` if they had their own fill. Text/vector/icon-like leaves
@@ -141,8 +144,9 @@ export function normalize(
     grandparent?: FigmaNode,
     ancestors: FigmaNode[] = [],
   ): string | undefined {
-    // Prune invisible nodes — but never the requested root (level 0).
-    if (level > 0 && fn.visible === false) return undefined;
+    // Prune invisible nodes — but never the requested root (level 0), and
+    // keep them (flagged) when the caller asked for hidden layers.
+    if (level > 0 && fn.visible === false && !opts.includeHidden) return undefined;
 
     const el = elById.get(fn.id) ?? minter.mint(fn.name ?? "", fn.type ?? "");
     const path = parentPath ? `${parentPath}.${el}` : el;
@@ -234,6 +238,13 @@ export function normalize(
     if (fn.strokeStyle) node.strokeStyle = fn.strokeStyle;
     if (fn.textStyle) node.textStyle = fn.textStyle;
     if (fn.effectStyle) node.effectStyle = fn.effectStyle;
+    if (fn.gridStyle) node.gridStyle = fn.gridStyle;
+    Object.assign(node, handoffProps(fn, parent));
+    if (opts.includeHidden) {
+      if (fn.visible === false) node.hidden = true;
+      const hiddenFills = hiddenFillStack(fn.fills);
+      if (hiddenFills) node.hiddenFills = hiddenFills;
+    }
 
     // Surface the nearest ancestor's solid fill when this node has none of
     // its own — the renderer can read it directly instead of walking the
@@ -328,6 +339,7 @@ export function normalize(
       if (textCase) node.textCase = textCase;
       const align = fn.style?.textAlignHorizontal;
       if (align && align !== "LEFT") node.textAlign = align.toLowerCase() as PdsNode["textAlign"];
+      Object.assign(node, textExtras(fn));
 
       // v0.10 Phase 3 — mixed inline styles. When the plugin captured runs
       // (a bold word inside a sentence, a coloured link, etc.) emit them
@@ -348,7 +360,10 @@ export function normalize(
                 ? ("line-through" as const)
                 : undefined;
           const tcRun = pdsTextCase(r.style?.textCase);
+          const hRun = linkHref(r.style?.hyperlink);
           const out: import("../pds").PdsTextRun = { t: r.characters };
+          if (hRun && hRun !== node.href) out.h = hRun;
+          if (r.textStyle && r.textStyle !== node.textStyle) out.st = r.textStyle;
           // Only emit overrides — agents reconstruct by inheriting from
           // the node's dominant style/fill/decoration when these are absent.
           if (sRef && sRef !== text) out.s = sRef;
@@ -421,7 +436,7 @@ export function normalize(
     // `more` so the agent knows to drill in with another plumb_node call.
     // Plugin-side truncation (v0.10 Phase 2) hands us `childCount` instead
     // of an inflated children array; honour it when present.
-    const kids = (fn.children ?? []).filter((k) => k.visible !== false);
+    const kids = (fn.children ?? []).filter((k) => opts.includeHidden || k.visible !== false);
     const truncatedHere = kids.length === 0 && typeof fn.childCount === "number" && fn.childCount > 0;
     if (level >= depth || truncatedHere) {
       const remaining = truncatedHere ? fn.childCount : kids.length;

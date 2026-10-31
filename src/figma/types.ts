@@ -111,6 +111,27 @@ export interface FigmaTypeStyle {
   textCase?: string;
   /** Figma: "NONE" | "UNDERLINE" | "STRIKETHROUGH". */
   textDecoration?: string;
+  italic?: boolean;
+  /** "TOP" | "CENTER" | "BOTTOM". */
+  textAlignVertical?: string;
+  paragraphSpacing?: number;
+  paragraphIndent?: number;
+  /** "DISABLED" | "ENDING" — `maxLines` only applies when "ENDING". */
+  textTruncation?: string;
+  maxLines?: number;
+  /** REST `Hyperlink` shape: a URL or a link to another node. */
+  hyperlink?: { type: string; url?: string; nodeID?: string };
+}
+
+/** A layout grid drawn on a frame (REST and plugin share this shape). */
+export interface FigmaLayoutGrid {
+  pattern: "COLUMNS" | "ROWS" | "GRID";
+  sectionSize?: number;
+  visible?: boolean;
+  alignment?: "MIN" | "MAX" | "STRETCH" | "CENTER";
+  gutterSize?: number;
+  offset?: number;
+  count?: number;
 }
 
 export interface FigmaNode {
@@ -129,11 +150,32 @@ export interface FigmaNode {
   absoluteBoundingBox?: { x: number; y: number; width: number; height: number } | null;
 
   // Auto-layout
-  layoutMode?: "NONE" | "HORIZONTAL" | "VERTICAL";
+  layoutMode?: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
   layoutPositioning?: "AUTO" | "ABSOLUTE";
   layoutWrap?: "NO_WRAP" | "WRAP";
   itemSpacing?: number;
   counterAxisSpacing?: number;
+  /** Wrapped rows: "SPACE_BETWEEN" spreads the rows (CSS align-content). */
+  counterAxisAlignContent?: "AUTO" | "SPACE_BETWEEN";
+  /** Grid auto-layout (layoutMode "GRID"). Track sizes: FLEX = fr, FIXED = px, HUG = auto. */
+  gridRowCount?: number;
+  gridColumnCount?: number;
+  gridRowGap?: number;
+  gridColumnGap?: number;
+  gridRowSizes?: Array<{ type: string; value?: number }>;
+  gridColumnSizes?: Array<{ type: string; value?: number }>;
+  /** Child of a grid: 0-based anchor cell and span. */
+  gridRowAnchorIndex?: number;
+  gridColumnAnchorIndex?: number;
+  gridRowSpan?: number;
+  gridColumnSpan?: number;
+  layoutGrids?: FigmaLayoutGrid[];
+  /** Plugin-injected Dev Mode hand-off. */
+  annotations?: Array<{ label: string; properties?: string[] }>;
+  devStatus?: { type: string; description?: string };
+  exportSettings?: Array<{ format: string; suffix?: string; constraint?: { type: string; value: number } }>;
+  /** Plugin-injected: one entry per text line — "ORDERED" | "UNORDERED" | "NONE". REST ships the same field. */
+  lineTypes?: string[];
   paddingTop?: number;
   paddingRight?: number;
   paddingBottom?: number;
@@ -176,6 +218,7 @@ export interface FigmaNode {
   strokeStyle?: string;
   textStyle?: string;
   effectStyle?: string;
+  gridStyle?: string;
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
   opacity?: number;
@@ -194,6 +237,8 @@ export interface FigmaNode {
     characters: string;
     style: FigmaTypeStyle;
     fills?: FigmaPaint[];
+    /** Name of the text style applied to this run, when it is one. */
+    textStyle?: string;
   }>;
 
   // Component

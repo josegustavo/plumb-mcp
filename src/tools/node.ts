@@ -66,6 +66,14 @@ export function registerPlumbNode(server: McpServer): void {
           .boolean()
           .optional()
           .describe("Include human-readable notes per node."),
+        includeHidden: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also return layers hidden in Figma (flagged `hidden: true`) and fills " +
+              "switched off with the eye icon (`hiddenFills`). Use it to audit content " +
+              "hidden on one breakpoint or alternative images kept in the file.",
+          ),
         maxTokens: z
           .number()
           .int()
@@ -136,7 +144,9 @@ export function registerPlumbNode(server: McpServer): void {
             fileName: bridge.inventory?.fileName ?? "",
             version: `plugin-${Date.now()}`,
           };
-          const pds = applyCollapse(normalizeToBudget(file, depth, maxTokens, { notes: args.notes }));
+          const pds = applyCollapse(
+            normalizeToBudget(file, depth, maxTokens, { notes: args.notes, includeHidden: args.includeHidden }),
+          );
           emitStudio({ kind: "screen", tool: "plumb_node", screen: nodeName, summary: `extracted ${nodeName}` });
           return ok({ ...pds, source: "plugin", node: nodeName });
         }
@@ -150,7 +160,7 @@ export function registerPlumbNode(server: McpServer): void {
         }
         const cacheKey =
           `node:${fileKey}:${id}:${depth}:` +
-          `${args.notes ? 1 : 0}:${maxTokens ?? 0}:${expandAll ? 1 : 0}`;
+          `${args.notes ? 1 : 0}:${maxTokens ?? 0}:${expandAll ? 1 : 0}:${args.includeHidden ? 1 : 0}`;
         const hit = cacheGet<PdsDocument>(cacheKey, DEFAULT_TTL_MS);
         // Cache key doesn't include collapseRoles — cached payloads are always
         // the uncollapsed doc, and collapse is applied fresh on every response
@@ -165,7 +175,10 @@ export function registerPlumbNode(server: McpServer): void {
           depth: expandAll ? 12 : depth + 1,
           token,
         });
-        const pds = normalizeToBudget(file, depth, maxTokens, { notes: args.notes });
+        const pds = normalizeToBudget(file, depth, maxTokens, {
+          notes: args.notes,
+          includeHidden: args.includeHidden,
+        });
         cacheSet(cacheKey, file.version, pds);
         emitStudio({ kind: "screen", tool: "plumb_node", screen: file.document.name, summary: `extracted ${file.document.name}` });
         return ok({ ...applyCollapse(pds), source: "rest", cached: false });
