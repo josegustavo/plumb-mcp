@@ -21,7 +21,7 @@
 >
 > **Installing the fork.** npm's `plumb-mcp` is upstream; this fork isn't published there.
 > - Docker image: `ghcr.io/josegustavo/plumb-mcp`.
-> - Figma plugin: a zip on each [release](https://github.com/josegustavo/plumb-mcp/releases).
+> - Figma plugin: a zip on each [release](https://github.com/josegustavo/plumb-mcp/releases) for local use. For a central server, build one with its URL (`npm run package:plugin -- --remote <url>`): Figma only lets the plugin reach hosts its manifest lists.
 > - From source: clone `https://github.com/josegustavo/plumb-mcp`, then run `npm ci && npm run build`. Point your MCP client at `node <clone>/dist/index.js` and import `<clone>/figma-plugin/manifest.json` in Figma desktop.
 
 <p align="center">

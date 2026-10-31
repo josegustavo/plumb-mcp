@@ -111,10 +111,11 @@ plugin can't read or write files on the server.
 3. **Reverse proxy.** Expose only the bridge, on one path, only to the Figma
    machine's network. See `deploy/central/Caddyfile.example`. Keep `/mcp`
    internal.
-4. **Plugin.** Download `plumb-figma-plugin-<version>.zip` from the
-   [releases](https://github.com/josegustavo/plumb-mcp/releases). Or build
-   one with your URL already filled in (keep that zip private: it names your
-   bridge path):
+4. **Plugin.** Build a zip for your server. Figma blocks every host the
+   plugin's manifest doesn't list, so the zip on the
+   [releases](https://github.com/josegustavo/plumb-mcp/releases) page reaches
+   localhost only. This build adds your server's origin to the manifest and
+   fills in the URL. Keep it private: it names your bridge path.
 
    ```bash
    npm run package:plugin -- --remote https://example.com/plumb-bridge-7f3k9q/

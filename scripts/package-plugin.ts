@@ -67,7 +67,7 @@ writeFileSync(
     "3. Run Plugins → Development → Plumb.",
     remote
       ? `4. Click "Server…": the URL (${remote}) is filled in. Type the pairing key\n   and this machine's name, Save, then Pair on the "Central server" row.`
-      : '4. Click "Pair" on the row of the Plumb server you want. For a central\n   server, click "Server…" and enter its URL and pairing key first.',
+      : '4. Click "Pair" on the row of the local Plumb server you want. This build\n   only reaches localhost: Figma blocks hosts the manifest does not list. For a\n   central server, build the zip with `npm run package:plugin -- --remote <url>`.',
     "5. Keep the plugin running (Minimize turns it into a small dot).",
     "",
     "Updating: replace this folder's files with the new zip's, then re-run the plugin.",
