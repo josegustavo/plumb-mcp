@@ -12,12 +12,11 @@
 #
 # The default image is small (~230 MB) and runs `plumb-mcp` over stdio.
 
-# Node 24 LTS, pinned by digest (Node 20 is end-of-life since 2026-04-30). Bump
-# both together: docker buildx imagetools inspect node:<tag>
-ARG NODE_IMAGE=node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+# Node 24 LTS, pinned by digest in all three stages (Node 20 is end-of-life since
+# 2026-04-30). Bump them together: docker buildx imagetools inspect node:<tag>
 
 # ---------- builder ----------
-FROM ${NODE_IMAGE} AS builder
+FROM node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS builder
 WORKDIR /app
 
 # Copy dependency manifests first so Docker can cache npm ci across rebuilds.
@@ -50,7 +49,7 @@ RUN npm prune --omit=dev && find node_modules -type f -name '*.map' -delete
 # Declared BEFORE `runner` on purpose: Docker treats the last stage as the
 # default target, so a plain `docker build .` must still produce the slim
 # server image, not this one.
-FROM ${NODE_IMAGE} AS verifier
+FROM node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS verifier
 WORKDIR /app
 
 # `chromium` lands at /usr/bin/chromium, which src/cli/chrome.ts already probes,
@@ -82,7 +81,7 @@ USER plumb
 ENTRYPOINT ["node", "dist/index.js"]
 
 # ---------- runner ----------
-FROM ${NODE_IMAGE} AS runner
+FROM node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
