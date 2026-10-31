@@ -12,6 +12,25 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [0.13.3-fork.3]
+
+### Added
+
+- **Hosted exports are named by content** (`<sha256>.<ext>`), so exporting the same design again creates no duplicate.
+  - Every `plumb_assets` / `plumb_screenshot` row carries `sha256`, `uri`, a signed `download` link and its `expires` time, plus a `resource_link` block.
+  - `resources/read plumb://exports/<file>` returns the file over MCP.
+  - `GET /files/<file>` on the MCP port returns it over HTTP, with the bearer token or the signed link (24 h).
+  - `PLUMB_PUBLIC_URL` makes the links absolute.
+- **`plumb_assets view`**: on a hosted server, bitmaps come back as links. `view: true` adds image blocks so the model can see them.
+
+### Changed
+
+- **Hosted `plumb_assets`**: rows no longer show the server's file paths. Only SVG markup is inline (up to 100 KB); bitmaps are no longer sent as base64 `data:` URIs or image blocks by default.
+
+### Fixed
+
+- The MCP HTTP server answers a malformed URL (`//`) with 400 instead of leaving the request open.
+
 ## [0.13.3-fork.2]
 
 ### Added

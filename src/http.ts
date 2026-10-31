@@ -1,5 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
-import { createServer as createHttpServer, type IncomingMessage, type Server } from "node:http";
+import { createReadStream, statSync } from "node:fs";
+import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { join } from "node:path";
+import { EXPORT_FILE_RE, exportsDir, MIME_BY_EXT, signatureValid } from "./exports";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { healthReport } from "./bridge/server";
 import { createLogger } from "./logger";
@@ -17,6 +20,9 @@ import { createServer } from "./server";
  *   PLUMB_HTTP_HOST   bind address (default 127.0.0.1)
  *   PLUMB_HTTP_PORT   port (default 8080)
  *   PLUMB_MCP_TOKEN   required bearer token; mandatory beyond loopback
+ *   PLUMB_PUBLIC_URL  optional origin prefixed to signed `download` links
+ *
+ * GET /files/<sha256>.<ext> serves hosted exports (see ./exports).
  */
 
 const log = createLogger("http");
@@ -46,13 +52,69 @@ function bearerMatches(req: IncomingMessage, token: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/**
+ * GET /files/<sha256>.<ext>: one hosted export. Allowed with the bearer token
+ * (a gateway), or with the signed, expiring URL a tool returned (a client that
+ * can't set headers). A missing file means it expired: the caller re-runs the
+ * tool, and the same design comes back under the same name.
+ */
+function serveExport(req: IncomingMessage, res: ServerResponse, url: URL, file: string, token?: string): void {
+  if (!EXPORT_FILE_RE.test(file)) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  const allowed =
+    !token ||
+    bearerMatches(req, token) ||
+    signatureValid(file, url.searchParams.get("exp"), url.searchParams.get("sig"));
+  if (!allowed) {
+    res.writeHead(401, { "WWW-Authenticate": "Bearer" });
+    res.end();
+    return;
+  }
+  const path = join(exportsDir(), file);
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch {
+    const body = JSON.stringify({
+      error: "This export expired or never existed on this server.",
+      nextAction: "Call the tool again; the same design returns the same file name.",
+    });
+    res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(body);
+    return;
+  }
+  res.writeHead(200, {
+    "Content-Type": MIME_BY_EXT[file.split(".")[1]!] ?? "application/octet-stream",
+    "Content-Length": size,
+    "Cache-Control": "private, max-age=86400, immutable",
+    ETag: `"${file.split(".")[0]}"`,
+  });
+  createReadStream(path).pipe(res);
+}
+
 /** Starts the HTTP MCP endpoint. Resolves with the listening server (its real port via `address()`). */
 export async function startHttpMcp(opts: HttpOptions): Promise<Server> {
   if (!opts.token && !LOOPBACK.has(opts.host)) {
     throw new Error(`PLUMB_MCP_TOKEN is required when PLUMB_HTTP_HOST (${opts.host}) is not loopback.`);
   }
   const http = createHttpServer((req, res) => {
-    const path = new URL(req.url ?? "/", "http://plumb").pathname;
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://plumb");
+    } catch {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    const path = url.pathname;
+    const fileMatch = /^\/files\/([^/]+)$/.exec(path);
+    if (req.method === "GET" && fileMatch) {
+      serveExport(req, res, url, fileMatch[1]!, opts.token);
+      return;
+    }
     if (req.method === "GET" && (path === "/health" || path === "/healthz")) {
       const body = JSON.stringify(healthReport());
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });

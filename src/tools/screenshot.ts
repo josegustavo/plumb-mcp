@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { isAbsolute, join, parse, resolve, sep } from "node:path";
 import { z } from "zod";
+import { publishExport, resourceLink } from "../exports";
 import { inlineMaxBytes, isHosted } from "../hosted";
 import { formatScreenMatches, resolveScreen, screenName } from "../bridge/inventory";
 import { requestScreenshot } from "../bridge/server";
@@ -186,25 +187,34 @@ export function registerPlumbScreenshot(server: McpServer): void {
           try { unlinkSync(tempPath); } catch { /* leave the temp file */ }
         }
         const bytes = statSync(path).size;
-        const inline = args.inline ?? isHosted();
+        const hosted = isHosted();
+        const inline = args.inline ?? hosted;
         const fits = bytes <= inlineMaxBytes();
+        // Hosted: name the content-addressed export (see ../exports) instead of this machine's path.
+        const ref = hosted ? publishExport(path, format) : null;
         const result = ok({
           source: "plugin",
           screen: nodeName,
-          path,
+          ...(ref
+            ? { sha256: ref.sha256, mimeType: ref.mimeType, uri: ref.uri, download: ref.download, expires: ref.expires }
+            : { path }),
           format,
           bytes,
           scale: args.scale ?? 2,
           ...(inline && !fits ? { inlineSkipped: `larger than ${inlineMaxBytes()} bytes — lower \`scale\`` } : {}),
           next: "Use this image as the visual reference of the design — compare it against what you build.",
         });
-        if (!inline || !fits) return result;
-        const image = {
-          type: "image" as const,
-          data: readFileSync(path).toString("base64"),
-          mimeType: format === "JPG" ? "image/jpeg" : "image/png",
-        };
-        return { content: [...result.content, image] };
+        const blocks: Array<{ type: "image"; data: string; mimeType: string } | ReturnType<typeof resourceLink>> = [];
+        if (inline && fits) {
+          blocks.push({
+            type: "image",
+            data: readFileSync(path).toString("base64"),
+            mimeType: format === "JPG" ? "image/jpeg" : "image/png",
+          });
+        }
+        // The clean name (no on-disk `-2` suffix): what a client saves the file as.
+        if (ref) blocks.push(resourceLink(ref, `${slug(nodeName || screenName(resolved.id) || resolved.id)}.${ext}`));
+        return { content: [...result.content, ...blocks] };
       } catch (e) {
         return fail(e);
       }

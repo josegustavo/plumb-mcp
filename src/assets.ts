@@ -30,6 +30,10 @@ export interface WrittenAsset {
 /** Bitmaps above this many bytes are not base64-inlined (kept on disk only). */
 export const INLINE_MAX_BYTES = 64 * 1024;
 
+/** With `svgOnly` (hosted): SVG markup above this stays a link, so one
+ *  illustration can't flood the context. */
+export const SVG_INLINE_MAX_BYTES = 100 * 1024;
+
 const MIME_FOR_FORMAT: Record<string, string> = {
   SVG: "image/svg+xml",
   PNG: "image/png",
@@ -44,15 +48,21 @@ const MIME_FOR_FORMAT: Record<string, string> = {
  * `data:image/<fmt>;base64,…` only when under INLINE_MAX_BYTES so we don't
  * blow up the agent's context with a megabyte of base64.
  */
-function buildInlineSource(format: string, path: string, bytes: number): string | undefined {
+function buildInlineSource(
+  format: string,
+  path: string,
+  bytes: number,
+  svgOnly = false,
+): string | undefined {
   if (format === "SVG") {
+    if (svgOnly && bytes > SVG_INLINE_MAX_BYTES) return undefined;
     try {
       return readFileSync(path, "utf8");
     } catch {
       return undefined;
     }
   }
-  if (bytes > INLINE_MAX_BYTES) return undefined;
+  if (svgOnly || bytes > INLINE_MAX_BYTES) return undefined;
   const mime = MIME_FOR_FORMAT[format];
   if (!mime) return undefined;
   try {
@@ -84,6 +94,11 @@ function slug(s: string): string {
   );
 }
 
+/** The clean file name for an asset (no on-disk `-2` suffix), e.g. `arrow-icon.svg`. */
+export function assetFileName(name: string, format: string): string {
+  return `${slug(name) || "asset"}.${extForFormat(format)}`;
+}
+
 /**
  * Move the bridge's temp-file uploads into a per-screen folder under
  * ./plumb-assets (overridable via PLUMB_ASSETS_DIR). Asset bytes never appear
@@ -93,7 +108,8 @@ function slug(s: string): string {
 export function writeAssets(
   screenName: string,
   assets: WireAsset[],
-  opts: { inline?: boolean } = {},
+  /** `svgOnly`: inline SVG markup (up to {@link SVG_INLINE_MAX_BYTES}) but never bitmap data: URIs. */
+  opts: { inline?: boolean; svgOnly?: boolean } = {},
 ): { dir: string; written: WrittenAsset[] } {
   const root = process.env.PLUMB_ASSETS_DIR ?? join(process.cwd(), "plumb-assets");
   const dir = join(root, slug(screenName) || "screen");
@@ -130,7 +146,7 @@ export function writeAssets(
       parentId: asset.parentId,
     };
     if (opts.inline) {
-      const source = buildInlineSource(asset.format, fullPath, bytes);
+      const source = buildInlineSource(asset.format, fullPath, bytes, opts.svgOnly);
       if (source !== undefined) out.source = source;
     }
     written.push(out);

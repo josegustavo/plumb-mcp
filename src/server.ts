@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { setRegisteredTools, toolAllowlist } from "./hosted";
+import { registerExportResource } from "./exports";
+import { isHosted, setRegisteredTools, toolAllowlist } from "./hosted";
 import { SERVER_NAME, SERVER_VERSION } from "./meta";
 import { registerPlumbAssets } from "./tools/assets";
 import { registerPlumbAudit } from "./tools/audit";
@@ -130,6 +131,8 @@ export function createServer(): McpServer {
   registerPlumbStudioStart(server);
   registerPlumbStudioKit(server);
   registerPlumbStudioPage(server);
+  // Hosted clients can't read this disk: exports are also MCP resources.
+  if (isHosted()) registerExportResource(server);
 
   setRegisteredTools(names);
   return server;

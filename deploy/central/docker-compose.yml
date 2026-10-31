@@ -11,7 +11,7 @@
 
 services:
   plumb:
-    # Pin a release tag in production (e.g. :0.13.3-fork.2) — `latest` moves.
+    # Pin a release tag in production (e.g. :0.13.3-fork.3) — `latest` moves.
     image: ${PLUMB_IMAGE:-ghcr.io/josegustavo/plumb-mcp:latest}
     command: ["serve"]
     restart: unless-stopped

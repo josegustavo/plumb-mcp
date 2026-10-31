@@ -30,8 +30,26 @@ to paste a link.
 | MCP transport | stdin/stdout, one client | Streamable HTTP at `/mcp`, many clients, stateless. `/health` needs no auth. |
 | Auth | none (local process) | `Authorization: Bearer $PLUMB_MCP_TOKEN`, required beyond loopback |
 | Tools | all | Read-only set: status, outline, node, query, search, describe, components, variables, tokens, screenshot, assets, comments, versions, files, library, audit, diff. `PLUMB_TOOLS=all` or a comma list overrides it. |
-| Images | file paths on this machine | Screenshots and bitmaps are also returned as MCP image blocks, up to `PLUMB_INLINE_MAX_BYTES` (default 5 MB) per response. |
-| Exported files | kept | deleted after 24 h. Clients can't reach the server's disk anyway. |
+| Files | paths on this machine | named by SHA-256, linked, deleted after 24 h unused (see below) |
+
+## Files: how exports reach a remote client
+
+Every file `plumb_assets` or `plumb_screenshot` writes is also named by its
+content, `<sha256>.<ext>`. Exporting the same design again gives the same name:
+nothing is duplicated, and a client or gateway that already holds that hash
+needs no new download. Each export row carries `sha256`, `mimeType`, `bytes`,
+`uri`, `download` and `expires`, so the client picks how to get the bytes:
+
+| Need | What to use |
+|---|---|
+| The model should **see** a screenshot or bitmap | Image blocks. `plumb_screenshot` sends one by default; `plumb_assets` sends them with `view: true`. Up to `PLUMB_INLINE_MAX_BYTES` (5 MB) per response. |
+| SVG markup to put in code | `source` on the row. Inline by default, up to 100 KB; bigger SVGs are links only. |
+| The **file** itself, from a client that supports MCP resources | The `resource_link` block: `resources/read plumb://exports/<file>` (SVG as text, bitmaps as a base64 blob). |
+| The file, by plain HTTP (older clients, scripts, a gateway) | `GET /files/<file>` on the MCP port: send the bearer token, or use the row's signed `download` link, which needs no header and expires in 24 h. `PLUMB_PUBLIC_URL` turns it into an absolute URL. |
+
+Bitmaps never travel as base64 unless asked for. A file deleted after 24 h
+unused answers 404 with "call the tool again"; the same design comes back
+under the same name.
 
 ## Bridge hardening
 
