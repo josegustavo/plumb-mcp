@@ -42,6 +42,9 @@ export function createServer(): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
+      // Bounds schema validation work per call (GHSA-46jr: off unless set). Two full
+      // PDS snapshots for plumb_diff fit well under it.
+      maxToolInputElements: 50_000,
       instructions:
         "Plumb extracts Figma designs as compact, normalized specs for building " +
         "UI, then verifies what you built. Use Plumb when Figma's official Dev " +

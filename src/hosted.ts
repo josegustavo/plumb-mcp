@@ -39,9 +39,13 @@ export const HOSTED_TOOLS = [
  */
 export function toolAllowlist(env: NodeJS.ProcessEnv = process.env): Set<string> | null {
   const raw = env.PLUMB_TOOLS?.trim();
-  if (raw === "all") return null;
-  if (raw) return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
-  return isHosted(env) ? new Set<string>(HOSTED_TOOLS) : null;
+  const listed = raw && raw !== "all" ? new Set(raw.split(",").map((s) => s.trim()).filter(Boolean)) : null;
+  if (!isHosted(env)) return listed;
+  // A hosted server never offers the tools that write to Figma, read this disk or
+  // fetch arbitrary URLs (SSRF into its networks) — unless the operator says so twice.
+  if (env.PLUMB_UNSAFE_TOOLS === "1") return raw === "all" ? null : (listed ?? new Set<string>(HOSTED_TOOLS));
+  const safe = new Set<string>(HOSTED_TOOLS);
+  return listed ? new Set([...listed].filter((t) => safe.has(t))) : safe;
 }
 
 let registered: readonly string[] = [];

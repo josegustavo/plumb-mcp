@@ -2,7 +2,8 @@ import { z } from "zod";
 import { fetchFileMeta, fetchProjectFiles, fetchTeamProjects } from "../figma/rest";
 import { parseFigmaUrl } from "../figma/url";
 import { PlumbError } from "../errors";
-import { fail, ok, requireToken } from "./shared";
+import { isHosted } from "../hosted";
+import { checkRestScope, fail, ok, pinnedIds, requireToken } from "./shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const DESCRIPTION =
@@ -41,12 +42,11 @@ export function registerPlumbFiles(server: McpServer): void {
         const fromUrl = parseTeamOrProject(args.url);
         const fileKey = args.fileKey ?? (args.url ? parseFigmaUrl(args.url)?.fileKey : undefined);
         const projectId = args.projectId ?? fromUrl.projectId;
-        const teamId =
-          args.teamId ?? fromUrl.teamId ?? (fileKey || projectId ? undefined : process.env.PLUMB_TEAM_ID?.trim());
+        const teamId = args.teamId ?? fromUrl.teamId ?? (fileKey || projectId ? undefined : pinnedIds("team")[0]);
         const token = requireToken(true);
 
         if (fileKey) {
-          const m = await fetchFileMeta(fileKey, token);
+          const m = await fetchFileMeta(checkRestScope("file", fileKey), token);
           return ok({
             source: "rest",
             fileKey,
@@ -60,6 +60,18 @@ export function registerPlumbFiles(server: McpServer): void {
           });
         }
         if (projectId) {
+          checkRestScope("project", projectId);
+          const teams = pinnedIds("team");
+          if (isHosted() && teams.length) {
+            // A pinned server reads only its teams' projects (one extra Tier 2 call).
+            const owned = await Promise.all(teams.map((t) => fetchTeamProjects(t, token)));
+            if (!owned.some((t) => t.projects.some((p) => p.id === projectId))) {
+              throw new PlumbError(
+                "That project is not in this server's Figma team.",
+                "Call figma_files with no arguments to list the team's projects.",
+              );
+            }
+          }
           const p = await fetchProjectFiles(projectId, token);
           const files = [...p.files]
             .sort((a, b) => (b.last_modified ?? "").localeCompare(a.last_modified ?? ""))
@@ -67,7 +79,7 @@ export function registerPlumbFiles(server: McpServer): void {
           return ok({ source: "rest", projectId, project: p.name, count: files.length, files });
         }
         if (teamId) {
-          const t = await fetchTeamProjects(teamId, token);
+          const t = await fetchTeamProjects(checkRestScope("team", teamId), token);
           return ok({
             source: "rest",
             teamId,

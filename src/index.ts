@@ -143,6 +143,11 @@ async function main(): Promise<void> {
           "without it anyone who reaches the bridge can pair.",
       );
     }
+    // Neither is rate-limited, so both must be long enough not to guess.
+    const secret = pairSecret();
+    if (secret && secret.length < 24) throw new Error("PLUMB_PAIR_SECRET must be at least 24 characters (openssl rand -base64 24).");
+    const token = process.env.PLUMB_MCP_TOKEN?.trim();
+    if (token && token.length < 32) throw new Error("PLUMB_MCP_TOKEN must be at least 32 characters (openssl rand -base64 32).");
     const exportDirs = [
       process.env.PLUMB_ASSETS_DIR ?? join(process.cwd(), "plumb-assets"),
       process.env.PLUMB_SCREENSHOTS_DIR ?? join(process.cwd(), "plumb-screenshots"),

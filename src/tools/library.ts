@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { fetchTeamLibrary, type LibraryKind, type RestLibraryItem } from "../figma/rest";
 import { PlumbError } from "../errors";
-import { fail, ok, requireToken } from "./shared";
+import { checkRestScope, fail, ok, pinnedIds, requireToken } from "./shared";
 import { parseTeamOrProject } from "./files";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -56,7 +56,7 @@ export function registerPlumbLibrary(server: McpServer): void {
     },
     async (args) => {
       try {
-        const teamId = args.teamId ?? parseTeamOrProject(args.url).teamId ?? process.env.PLUMB_TEAM_ID?.trim();
+        const teamId = args.teamId ?? parseTeamOrProject(args.url).teamId ?? pinnedIds("team")[0];
         if (!teamId) {
           throw new PlumbError(
             "No Figma team id given.",
@@ -64,7 +64,7 @@ export function registerPlumbLibrary(server: McpServer): void {
           );
         }
         const kind: LibraryKind = args.kind ?? "components";
-        const page = await fetchTeamLibrary(teamId, kind, requireToken(true), {
+        const page = await fetchTeamLibrary(checkRestScope("team", teamId), kind, requireToken(true), {
           pageSize: args.pageSize,
           after: args.after,
         });

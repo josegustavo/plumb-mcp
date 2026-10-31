@@ -54,14 +54,24 @@ under the same name.
 ## Bridge hardening
 
 `serve` refuses to start when the bridge binds beyond loopback without
-`PLUMB_PAIR_SECRET`.
+`PLUMB_PAIR_SECRET`, or when the key is shorter than 24 characters or
+`PLUMB_MCP_TOKEN` shorter than 32. It never registers the unsafe tools (canvas
+writes, local files, arbitrary URLs), even with `PLUMB_TOOLS=all`, unless
+`PLUMB_UNSAFE_TOOLS=1`.
 
 | Variable | Effect |
 |---|---|
 | `PLUMB_PAIR_SECRET` | The plugin must send this key to pair. The check is constant-time, and a wrong key closes the socket. Each pairing also gets a token the plugin must send to `/upload` and `/asset`. Plumb Studio turns off (`PLUMB_STUDIO=1` keeps it on). |
 | `PLUMB_ALLOWED_FILES` | Comma-separated Figma file names the plugin may serve. Any other file is refused at pairing or at its first inventory. |
 | `PLUMB_HEARTBEAT_MS` | Server ping interval (default 20000; `0` = off). A plugin that answered pings and then stays silent for 3 intervals is dropped, which frees the pairing slot (a sleeping laptop, a dead proxy connection). |
-| `PLUMB_MAX_UPLOAD_BYTES` | Upload cap (default 64 MB). |
+| `PLUMB_MAX_UPLOAD_BYTES` | Upload cap (default 64 MB; the compose sets 32 MiB). Uploads are accepted only for a request in flight. |
+| `PLUMB_REQUEST_TIMEOUT_MS` | Cap on every wait for the plugin. Set it below your gateway's timeout (the compose sets 80000). |
+| `PLUMB_FILE_KEY`, `PLUMB_TEAM_ID` | Defaults for the REST tools. When set, the REST tools only read those files and teams. |
+
+A keyed bridge closes sockets that don't pair within 15 s and caps WebSocket
+messages at 32 MiB. A central plugin that reconnects while the server still
+holds its old socket pairs again on its own once that socket drops (at most a
+minute, the heartbeat).
 
 Only one plugin can be paired at a time. A second one is refused with the first
 one's machine name, e.g. `Another Plumb plugin is already paired (Office PC).`
@@ -84,8 +94,20 @@ plugin can't read or write files on the server.
    `.github/workflows/docker.yml` publishes `ghcr.io/<owner>/plumb-mcp`.
    Public GHCR packages are free.
 2. **Container.** Copy `deploy/central/.env.example` to `.env`, fill in the
-   secrets, then run `docker compose up -d` with
-   `deploy/central/docker-compose.yml`. No host ports are published.
+   secrets and `PLUMB_IMAGE` as tag@digest
+   (`docker buildx imagetools inspect ghcr.io/josegustavo/plumb-mcp:<tag>`), then
+   run `docker compose up -d` with `deploy/central/docker-compose.yml`.
+   - **Isolation:** read-only root, `/tmp` as tmpfs, no capabilities, no new
+     privileges, and memory, CPU and PID limits.
+   - **Networks:** no host ports, and two `internal: true` networks with no
+     route to the internet. `plumb-edge` is for the reverse proxy (bridge,
+     31337); `plumb-erp` is for the gateway (`/mcp` and `/files`, 8080). Attach
+     those stacks to them as external networks.
+   - **Internet access:** the server needs none, except the REST tools
+     (comments, versions, files, library), which call api.figma.com when
+     `FIGMA_TOKEN` is set. For those, add a non-internal network and allow
+     egress only to api.figma.com:443 on the host; Docker can't filter by
+     hostname.
 3. **Reverse proxy.** Expose only the bridge, on one path, only to the Figma
    machine's network. See `deploy/central/Caddyfile.example`. Keep `/mcp`
    internal.

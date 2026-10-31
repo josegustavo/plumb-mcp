@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { maxUploadBytes, pairSecret, studioAllowed } from "./policy";
-import { pendingCount } from "./requestQueue";
+import { isPending, pendingCount } from "./requestQueue";
 import { bridge } from "./store";
 import { readInboundAsset, stageUpload, stagingStats } from "./uploads";
 import { createLogger } from "../logger";
@@ -120,6 +120,14 @@ export function handleHttp(req: IncomingMessage, res: ServerResponse): void {
     res.end();
     return;
   }
+  let url: URL;
+  try {
+    url = new URL(req.url ?? "/", "http://bridge");
+  } catch {
+    res.writeHead(400); // e.g. `//`: answer instead of leaving the socket open
+    res.end();
+    return;
+  }
   if (req.method === "GET") {
     // Liveness + readiness in one document. `ok` answers "is this process
     // alive"; `paired` answers "can the plugin path actually serve a request
@@ -152,8 +160,7 @@ export function handleHttp(req: IncomingMessage, res: ServerResponse): void {
       return;
     }
     // Inbound asset pull: the plugin UI eager-hydrates plan.assets from here.
-    const url = new URL(req.url ?? "/", "http://bridge");
-    const am = /^\/asset\/([A-Za-z0-9_-]+)\.([a-z0-9]+)$/.exec(url.pathname);
+    const am =/^\/asset\/([A-Za-z0-9_-]+)\.([a-z0-9]+)$/.exec(url.pathname);
     if (am) {
       if (!uploadAuthorized(url)) {
         res.writeHead(401);
@@ -182,7 +189,6 @@ export function handleHttp(req: IncomingMessage, res: ServerResponse): void {
     serveStudio(req, res);
     return;
   }
-  const url = new URL(req.url ?? "/", "http://bridge");
   const m = /^\/upload\/([A-Za-z0-9_-]+)\.([a-z0-9]+)$/.exec(url.pathname);
   if (!m || req.method !== "POST") {
     res.writeHead(404);
@@ -202,8 +208,22 @@ export function handleHttp(req: IncomingMessage, res: ServerResponse): void {
   }
   const reqId = m[1]!;
   const ext = m[2]!;
+  // Only bytes for a request in flight (`r7`, or `r7-2` = asset 2 of r7): a token
+  // holder can't stage files nobody asked for.
+  if (!isPending(reqId.replace(/-\d+$/, ""))) {
+    res.writeHead(409);
+    res.end();
+    return;
+  }
   const path = join(tmpdir(), `plumb-${reqId}.${ext}`);
   const out = createWriteStream(path);
+  // A client that hangs up mid-body: close the file and remove it (else fd + temp file leak).
+  req.on("close", () => {
+    if (!req.complete) {
+      out.destroy();
+      rmSync(path, { force: true });
+    }
+  });
   // Content-Length can be absent (chunked) — enforce the cap on the stream too.
   let received = 0;
   req.on("data", (chunk: Buffer) => {

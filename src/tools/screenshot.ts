@@ -150,9 +150,13 @@ export function registerPlumbScreenshot(server: McpServer): void {
               "`box` (w×h) — pick the one you want and re-call plumb_screenshot with its `id`.",
           });
         }
+        // Hosted: at most 2× (a 4× full page is tens of MB through every hop), and no `out` —
+        // remote callers don't choose paths on this server.
+        const hostedCall = isHosted();
+        const scale = hostedCall && args.scale !== undefined ? Math.min(args.scale, 2) : args.scale;
         const { path: tempPath, format, nodeName, error } = await requestScreenshot(
           resolved.id,
-          args.scale,
+          scale,
           args.format,
         );
         if (error) {
@@ -175,7 +179,7 @@ export function registerPlumbScreenshot(server: McpServer): void {
           ext,
           nodeName || screenName(resolved.id) || resolved.id,
           resolved.id,
-          args.out,
+          hostedCall ? undefined : args.out,
         );
         mkdirSync(parse(path).dir, { recursive: true });
         // Prefer rename (same filesystem — atomic), fall back to copy+unlink if
@@ -200,7 +204,7 @@ export function registerPlumbScreenshot(server: McpServer): void {
             : { path }),
           format,
           bytes,
-          scale: args.scale ?? 2,
+          scale: scale ?? 2,
           ...(inline && !fits ? { inlineSkipped: `larger than ${inlineMaxBytes()} bytes — lower \`scale\`` } : {}),
           next: "Use this image as the visual reference of the design — compare it against what you build.",
         });

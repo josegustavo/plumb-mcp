@@ -132,7 +132,7 @@
 <script>
   var RETRY_MIN_MS = 1500, RETRY_MAX_MS = 10000;
   var PORTS = [31337, 31338, 31339, 31340, 31341, 31342, 31343, 31344, 31345, 31346];
-  var PLUGIN_VERSION = "0.13.3-fork.3";
+  var PLUGIN_VERSION = "0.13.3-fork.4";
   // Central-server URL baked in by `npm run package:plugin -- --remote <url>`.
   var DEFAULT_REMOTE_URL = ""; // @plumb-remote-default
   var SETTINGS_HEIGHT = 300;
@@ -377,13 +377,14 @@
         s.serverVersion = msg.serverVersion || "";
         s.sessionLabel = msg.sessionLabel || (s.kind === "remote" ? "Central server" : "port " + s.port);
         renderSessions();
-        if (autoPair && !s.rejectReason) sendRaw(ws, pairMessage(s));
+        if (autoPair && (!s.rejectReason || s.retryPair)) sendRaw(ws, pairMessage(s));
         return;
       }
 
       if (msg.t === "paired") {
         s.paired = true;
         s.rejectReason = "";
+        s.retryPair = false;
         s.uploadToken = msg.uploadToken || "";
         // Bring this newly-paired server up to date with what we already know.
         if (lastInventory) {
@@ -405,8 +406,12 @@
       }
 
       if (msg.t === "pair-rejected") {
-        // Keep the reason on the row and stop auto-pairing into the same wall.
+        // Keep the reason on the row and stop auto-pairing into the same wall —
+        // except a central server's "already paired": that is usually our own
+        // previous socket (sleep, network change) the server hasn't dropped yet.
+        // The server closes this unpaired socket, and the reconnect pairs again.
         s.rejectReason = msg.reason || "Pairing rejected.";
+        s.retryPair = s.kind === "remote" && /already paired/i.test(s.rejectReason);
         renderSessions();
         return;
       }

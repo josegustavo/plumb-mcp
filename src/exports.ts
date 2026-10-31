@@ -1,7 +1,8 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { PlumbError } from "./errors";
 import { EXPORT_TTL_MS } from "./hosted";
 
 /**
@@ -47,9 +48,30 @@ export function exportsDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.PLUMB_ASSETS_DIR ?? join(process.cwd(), "plumb-assets"), "by-hash");
 }
 
-function signature(file: string, exp: number, env: NodeJS.ProcessEnv): string {
-  const key = env.PLUMB_MCP_TOKEN?.trim() ?? "";
-  return createHmac("sha256", `plumb-download:${key}`).update(`${file}:${exp}`).digest("hex");
+/** Plugin `format` → extension. Anything else is refused: the extension becomes a file name. */
+const EXT_BY_FORMAT: Record<string, string> = { svg: "svg", png: "png", jpg: "jpg", jpeg: "jpg", gif: "gif", webp: "webp" };
+
+/** Markup an exported SVG never needs and a hostile one would use once served from a web origin. */
+const UNSAFE_SVG = /<script|<foreignObject|<!ENTITY|<!DOCTYPE|<iframe|<embed|<object|\son[a-z]+\s*=|javascript:/i;
+
+/** The bytes really are the format the plugin claimed. */
+const LOOKS_LIKE: Record<string, (b: Buffer) => boolean> = {
+  png: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  jpg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  gif: (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
+  webp: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP",
+  svg: (b) => {
+    const text = b.toString("utf8");
+    return /<svg[\s>]/i.test(text) && !UNSAFE_SVG.test(text);
+  },
+};
+
+// ponytail: a per-process key — links die on restart (they live 24 h anyway) and no
+// secret to configure; the gateway fetches with the bearer token, not these links.
+const SIGNING_KEY = randomBytes(32);
+
+function signature(file: string, exp: number): string {
+  return createHmac("sha256", SIGNING_KEY).update(`${file}:${exp}`).digest("hex");
 }
 
 /** A signed, expiring path for one export file. */
@@ -57,7 +79,7 @@ export function signedDownload(file: string, now = Date.now(), env: NodeJS.Proce
   const exp = Math.floor((now + EXPORT_TTL_MS) / 1000);
   const base = (env.PLUMB_PUBLIC_URL?.trim() ?? "").replace(/\/+$/, "");
   return {
-    download: `${base}/files/${file}?exp=${exp}&sig=${signature(file, exp, env)}`,
+    download: `${base}/files/${file}?exp=${exp}&sig=${signature(file, exp)}`,
     expires: new Date(exp * 1000).toISOString(),
   };
 }
@@ -68,19 +90,25 @@ export function signatureValid(
   exp: string | null,
   sig: string | null,
   now = Date.now(),
-  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const e = Number(exp);
   if (!sig || !Number.isInteger(e) || e * 1000 < now) return false;
   const a = Buffer.from(sig);
-  const b = Buffer.from(signature(file, e, env));
+  const b = Buffer.from(signature(file, e));
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Give a written export its content-addressed name (hard link, else copy); returns how to reach it. */
 export function publishExport(path: string, format: string): ExportRef {
-  const ext = format.toLowerCase() === "jpeg" ? "jpg" : format.toLowerCase();
+  const ext = EXT_BY_FORMAT[String(format).toLowerCase()];
+  if (!ext) throw new PlumbError(`The plugin sent an unsupported export format (${String(format).slice(0, 20)}).`, "Export as SVG, PNG, JPG, GIF or WEBP.");
   const bytes = readFileSync(path);
+  if (!LOOKS_LIKE[ext]!(bytes)) {
+    throw new PlumbError(
+      `The exported file is not a plain ${ext.toUpperCase()} (wrong content, or SVG markup with script or external content).`,
+      "Export that layer again; if it persists, check the layer in Figma.",
+    );
+  }
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const file = `${sha256}.${ext}`;
   const dir = exportsDir();

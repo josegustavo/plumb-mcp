@@ -113,10 +113,17 @@ describe("keyed bridge (PLUMB_PAIR_SECRET)", () => {
     expect(typeof reply.uploadToken).toBe("string");
     expect(healthReport()).toMatchObject({ paired: true, machine: "Office PC", keyed: true });
 
-    const base = `http://127.0.0.1:${port}/upload/r9.png`;
+    const base = `http://127.0.0.1:${port}/upload/r9999.png`;
     expect((await fetch(base, { method: "POST", body: "x" })).status).toBe(401);
     expect((await fetch(`${base}?k=wrong`, { method: "POST", body: "x" })).status).toBe(401);
-    expect((await fetch(`${base}?k=${reply.uploadToken}`, { method: "POST", body: "x" })).status).toBe(200);
+    // Right token, but no request r9999 in flight: nothing to stage.
+    expect((await fetch(`${base}?k=${reply.uploadToken}`, { method: "POST", body: "x" })).status).toBe(409);
+    const shot = requestScreenshot("1:2");
+    const sreq = await nextOfType(next, "get-screenshot");
+    const up = await fetch(`http://127.0.0.1:${port}/upload/${sreq.reqId}.png?k=${reply.uploadToken}`, { method: "POST", body: "x" });
+    expect(up.status).toBe(200);
+    ws.send(JSON.stringify({ t: "screenshot", reqId: sreq.reqId, format: "PNG", nodeName: "n", error: null }));
+    expect((await shot).path).toBeTruthy();
 
     // A second plugin can't take the slot while this one is paired.
     const other = await client();
@@ -144,9 +151,11 @@ describe("keyed bridge (PLUMB_PAIR_SECRET)", () => {
     const assets = requestAssets({ nodeId: "1:2" });
     const areq = await nextOfType(next, "get-assets");
     ws.send(
-      JSON.stringify({ t: "assets", reqId: areq.reqId, assets: [{ id: "1:3", name: "x", format: "SVG", path: "/etc/passwd" }], error: null }),
+      JSON.stringify({ t: "assets", reqId: areq.reqId, assets: [{ id: "1:3", name: "x", format: "png/../../../cwd/PWNED", path: "/etc/passwd" }], error: null }),
     );
-    expect((await assets).assets[0]!.path).toBeNull();
+    const got = (await assets).assets[0]!;
+    expect(got.path).toBeNull();
+    expect(got.format).toBe("PNG");
 
     const shot = requestScreenshot("1:2");
     const sreq = await nextOfType(next, "get-screenshot");

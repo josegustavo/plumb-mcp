@@ -60,8 +60,16 @@ function armWatchdog(
   return setTimeout(() => {
     pending.delete(reqId);
     progressListeners.delete(reqId);
+    log.warn("plugin request timed out", { reqId, label, timeoutMs });
     reject(timeoutError(label));
   }, timeoutMs);
+}
+
+/** PLUMB_REQUEST_TIMEOUT_MS caps every plugin wait — a central server sets it
+ *  below its gateway's own timeout, so the gateway hears "timed out", not nothing. */
+function capped(timeoutMs: number): number {
+  const cap = Number(process.env.PLUMB_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(cap) && cap > 0 ? Math.min(timeoutMs, cap) : timeoutMs;
 }
 
 /**
@@ -73,6 +81,7 @@ export function openRequest<T>(
   timeoutMs: number,
   dispatch: (reqId: string) => void,
 ): Promise<T> {
+  timeoutMs = capped(timeoutMs);
   return new Promise<T>((resolve, reject) => {
     const reqId = `r${++reqCounter}`;
     pending.set(reqId, {
@@ -140,6 +149,11 @@ export function setProgressListener(
 
 export function clearProgressListener(reqId: string): void {
   progressListeners.delete(reqId);
+}
+
+/** Whether a request with this id is still waiting for its reply. */
+export function isPending(reqId: string): boolean {
+  return pending.has(reqId);
 }
 
 /** How many requests are in flight. A number that only grows means a wedged

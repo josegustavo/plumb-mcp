@@ -12,6 +12,44 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [0.13.3-fork.4]
+
+Pre-production hardening after four independent reviews.
+
+### Security
+
+- A plugin-supplied export `format` could become a path. Formats are now an allow-list, and the bytes must match their type: PNG, JPG, GIF and WEBP signatures; SVG markup without script, `foreignObject`, entities, event handlers or `javascript:`.
+- `/files` serves exports as inert downloads (`Content-Disposition: attachment`, CSP sandbox, `nosniff`).
+- Bridge `/upload` takes bytes only for a request in flight, and removes the file of an aborted upload (no leaked temp file or descriptor).
+- A malformed URL on the bridge port gets 400.
+- The WebSocket caps messages at 32 MiB. On a keyed bridge, a socket that hasn't paired within 15 s is closed.
+- `serve` never registers the unsafe tools (canvas writes, local files, arbitrary URLs), even with `PLUMB_TOOLS=all`, unless `PLUMB_UNSAFE_TOOLS=1`.
+- `serve` requires `PLUMB_PAIR_SECRET` of at least 24 characters and `PLUMB_MCP_TOKEN` of at least 32.
+- Download links are signed with a per-process random key, no longer derived from the bearer token.
+- Hosted REST reads stay inside `PLUMB_FILE_KEY` / `PLUMB_TEAM_ID` when those are set, and Figma ids are validated before they reach an api.figma.com path.
+- Hosted `plumb_screenshot` ignores `out` and caps `scale` at 2. Hosted `plumb_node` defaults to a 25k-token budget.
+- `tools/call` arguments are capped at 50,000 elements (`maxToolInputElements`).
+- ws 8.22.1.
+
+### Changed
+
+- **Docker image**: Node 24 LTS (Node 20 is end-of-life), pinned by digest. The image no longer ships npm, npx, corepack, yarn or third-party source maps.
+- **Release workflows**: actions pinned by commit SHA (Node 24 versions), no credentials left in checkout, no build cache. Images carry provenance and an SBOM. A tag no longer moves `latest`.
+- **CI**: Node 24; `engines` is `>=22`.
+- **`deploy/central` compose**:
+  - the image is pinned by tag and digest;
+  - `read_only`, `tmpfs /tmp`, `cap_drop: ALL`, `no-new-privileges`, and memory, CPU and PID limits;
+  - `PLUMB_TOOLS` fixed to the read-only set;
+  - a 32 MiB upload cap and `PLUMB_REQUEST_TIMEOUT_MS=80000`;
+  - a healthcheck on both ports;
+  - two `internal: true` networks (`plumb-edge` for the proxy, `plumb-erp` for the gateway).
+- **Caddy example**: blocks `/healthz` and `/metrics` on the bridge path, and documents `client_ip` behind a CDN and the `?k=` token in access logs.
+
+### Added
+
+- **`PLUMB_REQUEST_TIMEOUT_MS`**: caps every wait for the plugin. Timed-out plugin requests are logged.
+- **Reconnects**: a central plugin that reconnects while the server still holds its old socket ("already paired") pairs again on its own once that socket drops, instead of waiting for a click.
+
 ## [0.13.3-fork.3]
 
 ### Added

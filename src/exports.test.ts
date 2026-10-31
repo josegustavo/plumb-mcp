@@ -44,6 +44,16 @@ describe("hosted exports", () => {
     expect(a.uri).toBe(`plumb://exports/${a.file}`);
   });
 
+  it("refuses odd formats, hostile SVG and bytes that aren't what they claim", () => {
+    const root = process.env.PLUMB_ASSETS_DIR!;
+    expect(() => publishExport(svgPath, "png/../../../PWNED")).toThrow(/unsupported export format/);
+    const evil = join(root, "evil.svg");
+    writeFileSync(evil, '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>');
+    expect(() => publishExport(evil, "SVG")).toThrow(/not a plain SVG/);
+    expect(() => publishExport(svgPath, "PNG")).toThrow(/not a plain PNG/);
+    expect(readdirSync(exportsDir()).every((f) => /^[a-f0-9]{64}\.svg$/.test(f))).toBe(true);
+  });
+
   it("signs downloads that expire and can't be altered", () => {
     const now = Date.now();
     const url = new URL(signedDownload("f.png", now).download, "http://x");

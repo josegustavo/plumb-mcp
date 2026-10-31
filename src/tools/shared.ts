@@ -50,14 +50,43 @@ export function requireToken(hostedOk = false): string {
  * one file needs no link in every request.
  */
 export function restFileKey(args: { url?: string; fileKey?: string }): string {
-  const fileKey = resolveFigmaTarget(args).fileKey ?? (process.env.PLUMB_FILE_KEY?.trim() || undefined);
+  const fileKey = resolveFigmaTarget(args).fileKey ?? pinnedIds("file")[0];
   if (!fileKey) {
     throw new PlumbError(
       "No Figma file key given.",
       "Pass `url` (any link to the file) or `fileKey`, or set PLUMB_FILE_KEY on the server.",
     );
   }
-  return fileKey;
+  return checkRestScope("file", fileKey);
+}
+
+const REST_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** PLUMB_FILE_KEY / PLUMB_TEAM_ID as lists (comma-separated). */
+export function pinnedIds(kind: "file" | "team"): string[] {
+  const raw = kind === "file" ? process.env.PLUMB_FILE_KEY : process.env.PLUMB_TEAM_ID;
+  return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * A Figma file key / team / project id about to go into an api.figma.com path:
+ * plain id characters only (no `..`), and on a hosted server with PLUMB_FILE_KEY
+ * or PLUMB_TEAM_ID set, one of those — a prompt-injected agent must not walk
+ * everything the token's owner can see.
+ */
+export function checkRestScope(kind: "file" | "team" | "project", id: string): string {
+  if (!REST_ID.test(id)) {
+    throw new PlumbError(`Invalid Figma ${kind} id.`, "Pass the id exactly as it appears in the Figma URL.");
+  }
+  if (kind === "project" || !isHosted()) return id;
+  const pinned = pinnedIds(kind);
+  if (pinned.length && !pinned.includes(id)) {
+    throw new PlumbError(
+      `This server only reads its configured Figma ${kind}${pinned.length > 1 ? "s" : ""}.`,
+      `Leave out ${kind === "file" ? "fileKey/url" : "teamId"} to use ${pinned.length > 1 ? "them" : "it"}.`,
+    );
+  }
+  return id;
 }
 
 /** Minimal shape check for a raw JSON object the caller claims is a

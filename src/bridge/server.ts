@@ -71,6 +71,8 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 /** stdout is the MCP protocol channel — `createLogger` writes only to stderr. */
 const log = createLogger("bridge");
 
+const ASSET_FORMATS = new Set<WireAsset["format"]>(["SVG", "PNG", "JPG", "GIF", "WEBP"]);
+
 /** Send a request to the paired plugin and await its matching reply. */
 function request<T>(
   build: (reqId: string) => ServerMessage,
@@ -322,7 +324,8 @@ function bindPort(
 ): Promise<{ wss: WebSocketServer; http: Server; port: number } | null> {
   return new Promise((resolve) => {
     const http = createServer(handleHttp);
-    const wss = new WebSocketServer({ server: http });
+    // 32 MiB per message: a full-file inventory or a big node tree fits; ws's 100 MiB default is a memory lever.
+    const wss = new WebSocketServer({ server: http, maxPayload: 32 * 1024 * 1024 });
     // Multi-agent connect: when a second `plumb-mcp` boots and 31337 is taken,
     // http emits 'error' AND wss emits 'error' (it's attached to the same
     // server). Without this swallow the wss error propagates as uncaught and
@@ -421,6 +424,14 @@ export async function startBridge(): Promise<void> {
     send(ws, { t: "plumb-hello", serverVersion: SERVER_VERSION, sessionLabel });
 
     let thisPaired = false;
+    // A keyed (central) bridge: its plugins pair right after hello, so a socket
+    // still unpaired after 15 s is not one — close it rather than hold it open.
+    const pairDeadline = pairSecret()
+      ? setTimeout(() => {
+          if (!thisPaired) ws.close(1008, "not paired");
+        }, 15_000)
+      : undefined;
+    pairDeadline?.unref?.();
 
     // Heartbeat: a sleeping laptop or a proxy can leave a dead socket "open"
     // for minutes, holding the single pairing slot. Ping on an interval and
@@ -560,8 +571,10 @@ export async function startBridge(): Promise<void> {
           // uploads — those entries keep path = null. A path the plugin sends
           // itself is never trusted: on a central server the plugin is another
           // machine, and that path would be read, moved and inlined.
+          // Same for `format`: it becomes a file extension, so only the known ones pass.
           const filled = msg.assets.map((a, i) => ({
             ...a,
+            format: ASSET_FORMATS.has(a.format) ? a.format : "PNG",
             path: takeUpload(`${msg.reqId}-${i}`) ?? null,
           }));
           const ms = takeAssetRequestElapsed(msg.reqId);
@@ -643,6 +656,7 @@ export async function startBridge(): Promise<void> {
 
     ws.on("close", () => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (pairDeadline) clearTimeout(pairDeadline);
       if (thisPaired) {
         pairedSocket = null;
         bridge.reset();

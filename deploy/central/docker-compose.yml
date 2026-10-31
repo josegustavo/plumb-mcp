@@ -1,20 +1,31 @@
 # Plumb as a central server: one container next to your reverse proxy, one
 # Figma desktop (anywhere) running the plugin and pairing with it over HTTPS.
 #
-#   cp .env.example .env   # fill in the secrets
+#   cp .env.example .env   # fill in the secrets and the pinned image
 #   docker compose up -d
 #
-# Nothing is published on the host. The reverse proxy reaches the bridge
-# (31337) on the shared network and exposes ONE path of it to the Figma
-# machine; MCP clients or a gateway reach /mcp (8080) on the same network.
-# See ../../docs/central-server.md.
+# Nothing is published on the host and the container has no route to the
+# internet. The reverse proxy joins `plumb-edge` and exposes ONE path of the
+# bridge (31337) to the Figma machine; MCP clients or a gateway join
+# `plumb-erp` and reach /mcp and /files (8080). See ../../docs/central-server.md.
 
 services:
   plumb:
-    # Pin a release tag in production (e.g. :0.13.3-fork.3) — `latest` moves.
-    image: ${PLUMB_IMAGE:-ghcr.io/josegustavo/plumb-mcp:latest}
+    # tag@sha256 digest, from the release: a tag alone can move.
+    image: ${PLUMB_IMAGE:?set PLUMB_IMAGE in .env (ghcr.io/...:<tag>@sha256:<digest>)}
     command: ["serve"]
     restart: unless-stopped
+    init: true
+    # Writes go to /data (volume) and /tmp (plugin uploads) only.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
     environment:
       PLUMB_SESSION_NAME: ${PLUMB_SESSION_NAME:-central}
       PLUMB_BRIDGE_HOST: 0.0.0.0
@@ -24,13 +35,23 @@ services:
       PLUMB_PAIR_SECRET: ${PLUMB_PAIR_SECRET:?set PLUMB_PAIR_SECRET in .env}
       PLUMB_MCP_TOKEN: ${PLUMB_MCP_TOKEN:?set PLUMB_MCP_TOKEN in .env}
       PLUMB_ALLOWED_FILES: ${PLUMB_ALLOWED_FILES:-}
-      PLUMB_TOOLS: ${PLUMB_TOOLS:-}
-      # Only plumb_comments / versions / files / library use it (Figma REST,
-      # per-minute limits). Design reads never do.
+      # Fixed on purpose: the read-only hosted set. A shared server never runs "all".
+      PLUMB_TOOLS: ""
+      PLUMB_MAX_UPLOAD_BYTES: "33554432"
+      # Under the gateway's own timeout, so it hears "timed out" instead of nothing.
+      PLUMB_REQUEST_TIMEOUT_MS: ${PLUMB_REQUEST_TIMEOUT_MS:-80000}
+      # Only plumb_comments / versions / files / library use it (api.figma.com),
+      # and they need the egress network below. Design reads never do.
       FIGMA_TOKEN: ${FIGMA_TOKEN:-}
       PLUMB_FILE_KEY: ${PLUMB_FILE_KEY:-}
       PLUMB_TEAM_ID: ${PLUMB_TEAM_ID:-}
       PLUMB_LOG_FORMAT: json
+    healthcheck:
+      # Both listeners: the bridge (31337) and MCP (8080).
+      test: ["CMD", "node", "-e", "Promise.all([31337,8080].map(p=>fetch('http://127.0.0.1:'+p+'/healthz'))).then(r=>process.exit(r.every(x=>x.ok)?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     # Docker keeps container logs forever by default; cap them.
     logging:
       driver: json-file
@@ -40,12 +61,20 @@ services:
     volumes:
       - plumb-data:/data
     networks:
-      - plumb
+      - plumb-edge
+      - plumb-erp
 
 volumes:
   plumb-data:
 
 networks:
-  # Attach your reverse proxy and MCP gateway to this network, or replace it
-  # with an existing external one:  plumb: { external: true, name: proxy-net }
-  plumb:
+  # Reverse proxy <-> Plumb bridge. The proxy's stack attaches it as external.
+  plumb-edge:
+    name: plumb-edge
+    internal: true
+  # ERP / MCP gateway <-> Plumb /mcp and /files.
+  plumb-erp:
+    name: plumb-erp
+    internal: true
+  # Only if FIGMA_TOKEN is set: add a third, non-internal network here and limit
+  # its egress to api.figma.com:443 on the host (Docker can't filter by name).

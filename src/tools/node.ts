@@ -9,6 +9,7 @@ import { resolveFigmaTarget } from "../figma/url";
 import { normalizeToBudget } from "../normalize/budget";
 import { collapseByRole } from "../semantic/project/collapse";
 import { emitStudio } from "../studio/events";
+import { isHosted } from "../hosted";
 import { fail, ok, requireToken } from "./shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { FigmaFileResult } from "../figma/types";
@@ -100,9 +101,10 @@ export function registerPlumbNode(server: McpServer): void {
         const expandAll = args.expandAll === true;
         const depth = expandAll ? 12 : (args.depth ?? 3);
         // Always cap expandAll responses — agents can blow the context window
-        // pulling a 47-node screen at depth 12 otherwise.
+        // pulling a 47-node screen at depth 12 otherwise. A hosted server caps every
+        // call: each response also crosses a gateway and lands in its logs.
         const maxTokens =
-          args.maxTokens ?? (expandAll ? 60_000 : undefined);
+          args.maxTokens ?? (expandAll ? 60_000 : isHosted() ? 25_000 : undefined);
         const collapseRoles = args.collapseRoles?.length ? new Set<string>(args.collapseRoles) : undefined;
         const applyCollapse = (doc: PdsDocument): PdsDocument =>
           collapseRoles ? collapseByRole(doc, collapseRoles) : doc;

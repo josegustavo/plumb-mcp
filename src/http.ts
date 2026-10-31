@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
+import { pipeline } from "node:stream";
 import { EXPORT_FILE_RE, exportsDir, MIME_BY_EXT, signatureValid } from "./exports";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { healthReport } from "./bridge/server";
@@ -91,8 +92,13 @@ function serveExport(req: IncomingMessage, res: ServerResponse, url: URL, file: 
     "Content-Length": size,
     "Cache-Control": "private, max-age=86400, immutable",
     ETag: `"${file.split(".")[0]}"`,
+    // Inert if opened in a browser: an SVG can't run anything from here.
+    "Content-Disposition": `attachment; filename="${file}"`,
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
   });
-  createReadStream(path).pipe(res);
+  // pipeline: a file swept between stat and open ends the response instead of hanging it.
+  pipeline(createReadStream(path), res, () => undefined);
 }
 
 /** Starts the HTTP MCP endpoint. Resolves with the listening server (its real port via `address()`). */

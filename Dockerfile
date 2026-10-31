@@ -12,8 +12,12 @@
 #
 # The default image is small (~230 MB) and runs `plumb-mcp` over stdio.
 
+# Node 24 LTS, pinned by digest (Node 20 is end-of-life since 2026-04-30). Bump
+# both together: docker buildx imagetools inspect node:<tag>
+ARG NODE_IMAGE=node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+
 # ---------- builder ----------
-FROM node:20-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 # Copy dependency manifests first so Docker can cache npm ci across rebuilds.
@@ -31,8 +35,8 @@ COPY figma-plugin ./figma-plugin
 COPY studio ./studio
 RUN npm run build
 
-# Drop devDependencies so the runtime stage stays lean.
-RUN npm prune --omit=dev
+# Drop devDependencies (and third-party source maps) so the runtime stage stays lean.
+RUN npm prune --omit=dev && find node_modules -type f -name '*.map' -delete
 
 # ---------- verifier ----------
 # Same server, plus a headless Chromium, for the workloads that need to RENDER
@@ -46,7 +50,7 @@ RUN npm prune --omit=dev
 # Declared BEFORE `runner` on purpose: Docker treats the last stage as the
 # default target, so a plain `docker build .` must still produce the slim
 # server image, not this one.
-FROM node:20-alpine AS verifier
+FROM ${NODE_IMAGE} AS verifier
 WORKDIR /app
 
 # `chromium` lands at /usr/bin/chromium, which src/cli/chrome.ts already probes,
@@ -78,8 +82,13 @@ USER plumb
 ENTRYPOINT ["node", "dist/index.js"]
 
 # ---------- runner ----------
-FROM node:20-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
+ENV NODE_ENV=production
+
+# The server needs only node: drop npm, npx, corepack and yarn from the image.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 
 # Non-root user — defensive default; plumb-mcp doesn't need root. The UID/GID
 # are pinned rather than left to Alpine's `-S` allocator so a base-image bump

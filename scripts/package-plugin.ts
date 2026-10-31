@@ -50,7 +50,7 @@ const marker = /var DEFAULT_REMOTE_URL = "[^"]*"; \/\/ @plumb-remote-default/;
 if (!marker.test(ui)) throw new Error("ui.html lost its @plumb-remote-default marker");
 writeFileSync(
   join(stage, "ui.html"),
-  ui.replace(marker, `var DEFAULT_REMOTE_URL = ${JSON.stringify(remote)}; // @plumb-remote-default`),
+  ui.replace(marker, () => `var DEFAULT_REMOTE_URL = ${JSON.stringify(remote)}; // @plumb-remote-default`),
 );
 
 copyFileSync(join(src, "code.js"), join(stage, "code.js"));

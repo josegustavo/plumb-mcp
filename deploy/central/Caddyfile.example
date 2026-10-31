@@ -1,14 +1,21 @@
 # Inside your site block (e.g. example.com { ... }), BEFORE the catch-all
-# reverse_proxy of the main app. Only the plugin needs this route; /mcp stays
-# internal (your gateway calls http://plumb:8080/mcp on the shared network).
+# reverse_proxy of the main app and OUTSIDE any forward_auth / SSO matcher:
+# the plugin can't do a browser login. Only the plugin needs this route; /mcp
+# stays internal (your gateway calls http://plumb:8080/mcp on plumb-erp).
 #
 # Use a path that names what it is plus a random suffix — e.g.
 # /plumb-bridge-7f3k9q — and the same URL in the plugin's Server… settings.
+# Caddy must join the `plumb-edge` network.
 
 handle_path /plumb-bridge-CHANGE-ME/* {
-	# Only the Figma machine's network (office VPN egress IP, etc.).
+	# Only the Figma machine's network (office VPN egress IP, etc.). Behind a
+	# CDN or another proxy, use client_ip with trusted_proxies instead.
 	@outside not remote_ip 203.0.113.10/32
 	respond @outside 403
+
+	# Health and metrics name the machine and the open file: keep them internal.
+	@internal path /healthz /health /metrics
+	respond @internal 404
 
 	# Caddy proxies the WebSocket upgrade and the upload POSTs as-is.
 	reverse_proxy plumb:31337 {
@@ -16,3 +23,7 @@ handle_path /plumb-bridge-CHANGE-ME/* {
 		flush_interval -1
 	}
 }
+
+# If the site logs access (a `log` directive), the plugin's uploads carry a
+# per-pairing token in `?k=`. Leave access logs off for this path, or filter
+# the query out of the logged URI.
