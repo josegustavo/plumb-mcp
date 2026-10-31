@@ -125,8 +125,17 @@ export interface RestComment {
   created_at: string;
   resolved_at?: string | null;
   user?: { handle?: string };
-  /** Pinned position — `node_id` when the comment sits on a frame/layer. */
-  client_meta?: { node_id?: string; node_offset?: { x: number; y: number }; x?: number; y?: number } | null;
+  /** Pinned position: a canvas point (`x`/`y`), or a point inside a node
+   *  (`node_id` + `node_offset`), optionally a dragged region with a pin corner. */
+  client_meta?: {
+    node_id?: string;
+    node_offset?: { x: number; y: number };
+    x?: number;
+    y?: number;
+    region_width?: number;
+    region_height?: number;
+    comment_pin_corner?: string;
+  } | null;
 }
 
 /** One saved version from the file's version history. */
@@ -158,9 +167,95 @@ export async function fetchVersions(fileKey: string, token: string, pageSize: nu
   return Array.isArray(json.versions) ? json.versions : [];
 }
 
-/** GET `/v1/files/:key/<path>` for a Tier 2 endpoint. A 429 surfaces Retry-After and is never retried. */
-async function tier2Get<T>(fileKey: string, path: string, token: string): Promise<T> {
-  const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/${path}`;
+/** A file's metadata (`GET /v1/files/:key/meta`, Tier 3) — no document tree. */
+export interface RestFileMeta {
+  name?: string;
+  folder_name?: string;
+  last_touched_at?: string;
+  last_touched_by?: { handle?: string };
+  creator?: { handle?: string };
+  thumbnail_url?: string;
+  editorType?: string;
+  version?: string;
+  url?: string;
+}
+
+export async function fetchFileMeta(fileKey: string, token: string): Promise<RestFileMeta> {
+  const json = await tier2Get<{ file?: RestFileMeta }>(fileKey, "meta", token);
+  return json.file ?? {};
+}
+
+/** A team's projects (`GET /v1/teams/:id/projects`, Tier 2). */
+export async function fetchTeamProjects(
+  teamId: string,
+  token: string,
+): Promise<{ name?: string; projects: Array<{ id: string; name: string }> }> {
+  const json = await figmaGet<{ name?: string; projects?: Array<{ id: string | number; name: string }> }>(
+    `teams/${encodeURIComponent(teamId)}/projects`,
+    token,
+    `team ${teamId}`,
+  );
+  return {
+    name: json.name,
+    projects: (json.projects ?? []).map((p) => ({ id: String(p.id), name: p.name })),
+  };
+}
+
+/** A project's files (`GET /v1/projects/:id/files`, Tier 2). */
+export async function fetchProjectFiles(
+  projectId: string,
+  token: string,
+): Promise<{ name?: string; files: Array<{ key: string; name: string; last_modified?: string; thumbnail_url?: string }> }> {
+  const json = await figmaGet<{
+    name?: string;
+    files?: Array<{ key: string; name: string; last_modified?: string; thumbnail_url?: string }>;
+  }>(`projects/${encodeURIComponent(projectId)}/files`, token, `project ${projectId}`);
+  return { name: json.name, files: json.files ?? [] };
+}
+
+/** One published library item (`GET /v1/teams/:id/{components,component_sets,styles}`, Tier 3). */
+export interface RestLibraryItem {
+  key: string;
+  file_key: string;
+  node_id: string;
+  name: string;
+  description?: string;
+  style_type?: string;
+  thumbnail_url?: string;
+  updated_at?: string;
+  containing_frame?: { name?: string; pageName?: string; containingComponentSet?: { name?: string } | null } | null;
+}
+
+export type LibraryKind = "components" | "component_sets" | "styles";
+
+export async function fetchTeamLibrary(
+  teamId: string,
+  kind: LibraryKind,
+  token: string,
+  opts: { pageSize?: number; after?: number } = {},
+): Promise<{ items: RestLibraryItem[]; after?: number }> {
+  const qs = new URLSearchParams({ page_size: String(Math.min(Math.max(opts.pageSize ?? 100, 1), 1000)) });
+  if (opts.after !== undefined) qs.set("after", String(opts.after));
+  const json = await figmaGet<{ meta?: Record<string, unknown> & { cursor?: { after?: number } } }>(
+    `teams/${encodeURIComponent(teamId)}/${kind}?${qs}`,
+    token,
+    `team ${teamId}`,
+  );
+  const items = json.meta?.[kind];
+  return {
+    items: Array.isArray(items) ? (items as RestLibraryItem[]) : [],
+    ...(json.meta?.cursor?.after !== undefined ? { after: json.meta.cursor.after } : {}),
+  };
+}
+
+/** GET `/v1/files/:key/<path>` for a Tier 2/3 endpoint. */
+function tier2Get<T>(fileKey: string, path: string, token: string): Promise<T> {
+  return figmaGet<T>(`files/${encodeURIComponent(fileKey)}/${path}`, token, `file "${fileKey}"`);
+}
+
+/** GET `/v1/<path>` for a per-minute (Tier 2/3) endpoint. A 429 surfaces Retry-After and is never retried. */
+async function figmaGet<T>(path: string, token: string, what: string): Promise<T> {
+  const url = `https://api.figma.com/v1/${path}`;
 
   let res: Awaited<ReturnType<typeof fetch>>;
   try {
@@ -183,7 +278,13 @@ async function tier2Get<T>(fileKey: string, path: string, token: string): Promis
       "Do not retry before Retry-After has passed — every retry counts against the same quota.",
     );
   }
-  if (!res.ok) throw restError(res.status, fileKey);
+  if (res.status === 404) {
+    throw new PlumbError(
+      `Figma ${what} was not found (HTTP 404).`,
+      "Check the key or id — it is in the Figma URL (/design/<key>, /files/team/<id>, /files/project/<id>).",
+    );
+  }
+  if (!res.ok) throw restError(res.status, what);
   return (await res.json()) as T;
 }
 

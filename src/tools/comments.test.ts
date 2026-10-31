@@ -3,7 +3,14 @@ import { threadComments } from "./comments";
 import type { RestComment } from "../figma/rest";
 
 const raw: RestComment[] = [
-  { id: "1", order_id: "1", message: "Old root", created_at: "2026-10-01T10:00:00Z", user: { handle: "Ana" }, client_meta: { node_id: "1:2" } },
+  {
+    id: "1",
+    order_id: "1",
+    message: "Old root",
+    created_at: "2026-10-01T10:00:00Z",
+    user: { handle: "Ana" },
+    client_meta: { node_id: "1:2", node_offset: { x: 120.4, y: 32 }, region_width: 200, region_height: 80, comment_pin_corner: "top-left" },
+  },
   { id: "2", parent_id: "1", message: "Second reply", created_at: "2026-10-03T10:00:00Z", user: { handle: "Jose" } },
   { id: "3", parent_id: "1", message: "First reply", created_at: "2026-10-02T10:00:00Z", user: { handle: "Ana" } },
   { id: "4", order_id: "2", message: "New root", created_at: "2026-10-05T10:00:00Z", user: { handle: "Jose" }, client_meta: { x: 10, y: 20 } },
@@ -17,6 +24,13 @@ describe("threadComments", () => {
     expect(threads[1]!.replies.map((r) => r.message)).toEqual(["First reply", "Second reply"]);
     expect(threads[1]!.node).toBe("1:2");
     expect(threads[0]!.node).toBeUndefined();
+  });
+
+  it("keeps where each thread is pinned", () => {
+    const [unpinned, pinned] = threadComments(raw);
+    expect(pinned).toMatchObject({ node: "1:2", pin: { x: 120, y: 32 }, region: { w: 200, h: 80, corner: "top-left" } });
+    expect(unpinned!.pin).toEqual({ x: 10, y: 20 });
+    expect(unpinned!.region).toBeUndefined();
   });
 
   it("includes resolved threads and filters by node id on request", () => {

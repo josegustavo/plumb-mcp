@@ -11,7 +11,7 @@
 
 services:
   plumb:
-    # Pin a release tag in production (e.g. :0.13.3-fork.1) — `latest` moves.
+    # Pin a release tag in production (e.g. :0.13.3-fork.2) — `latest` moves.
     image: ${PLUMB_IMAGE:-ghcr.io/josegustavo/plumb-mcp:latest}
     command: ["serve"]
     restart: unless-stopped
@@ -25,8 +25,11 @@ services:
       PLUMB_MCP_TOKEN: ${PLUMB_MCP_TOKEN:?set PLUMB_MCP_TOKEN in .env}
       PLUMB_ALLOWED_FILES: ${PLUMB_ALLOWED_FILES:-}
       PLUMB_TOOLS: ${PLUMB_TOOLS:-}
-      # Only plumb_comments / plumb_versions use it (Figma REST, Tier 2).
+      # Only plumb_comments / versions / files / library use it (Figma REST,
+      # per-minute limits). Design reads never do.
       FIGMA_TOKEN: ${FIGMA_TOKEN:-}
+      PLUMB_FILE_KEY: ${PLUMB_FILE_KEY:-}
+      PLUMB_TEAM_ID: ${PLUMB_TEAM_ID:-}
       PLUMB_LOG_FORMAT: json
     # Docker keeps container logs forever by default; cap them.
     logging:

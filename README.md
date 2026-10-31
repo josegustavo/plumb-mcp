@@ -13,7 +13,9 @@
 > - **New read tools.**
 >   - `plumb_variables` lists local variables and named styles with their values.
 >   - `plumb_node includeHidden` also returns hidden layers.
->   - `plumb_comments` and `plumb_versions` read comment threads and version history. They are the only two that call the Figma REST API. They need a free personal access token (`FIGMA_TOKEN`) and fall under Figma's per-minute Tier 2 limits, not the monthly Tier 1 quota.
+>   - `plumb_comments` reads comment threads with their replies, the node each one is pinned to, the exact pin point and any marked region. `plumb_versions` reads the version history.
+>   - `plumb_files` lists a team's projects, a project's files and one file's metadata; `plumb_library` lists the team's published components, component sets and styles.
+>   - These four are the only tools that call the Figma REST API. They need a free personal access token (`FIGMA_TOKEN`) and fall under Figma's per-minute limits (Tier 2/3), not the monthly Tier 1 quota. `PLUMB_FILE_KEY` / `PLUMB_TEAM_ID` set a default file and team.
 > - **Central server.** `plumb-mcp serve` runs one container a whole team shares over MCP (HTTP + bearer token). Only one machine needs Figma desktop and the plugin, pairing from anywhere with a key. See [docs/central-server.md](./docs/central-server.md).
 > - **Exports never overwrite** an earlier file with the same name.
 >

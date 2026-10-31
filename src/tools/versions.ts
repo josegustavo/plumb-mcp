@@ -1,8 +1,6 @@
 import { z } from "zod";
 import { fetchVersions } from "../figma/rest";
-import { resolveFigmaTarget } from "../figma/url";
-import { PlumbError } from "../errors";
-import { fail, ok, requireToken } from "./shared";
+import { fail, ok, requireToken, restFileKey } from "./shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const DESCRIPTION =
@@ -31,10 +29,7 @@ export function registerPlumbVersions(server: McpServer): void {
     },
     async (args) => {
       try {
-        const { fileKey } = resolveFigmaTarget({ url: args.url, fileKey: args.fileKey });
-        if (!fileKey) {
-          throw new PlumbError("No Figma file key given.", "Pass `url` (any link to the file) or `fileKey`.");
-        }
+        const fileKey = restFileKey(args);
         const raw = await fetchVersions(fileKey, requireToken(true), args.limit ?? 20);
         const versions = raw
           .filter((v) => !args.namedOnly || !!v.label)

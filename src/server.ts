@@ -11,6 +11,8 @@ import { registerPlumbDesign } from "./tools/design";
 import { registerPlumbDiff } from "./tools/diff";
 import { registerPlumbEmitReact } from "./tools/emitReact";
 import { registerPlumbFigNode, registerPlumbFigOutline } from "./tools/fig";
+import { registerPlumbFiles } from "./tools/files";
+import { registerPlumbLibrary } from "./tools/library";
 import { registerPlumbFit } from "./tools/fit";
 import { registerPlumbImportWeb } from "./tools/importHtml";
 import { registerPlumbNode } from "./tools/node";
@@ -54,7 +56,9 @@ export function createServer(): McpServer {
         "plumb_search finds nodes; plumb_components lists components and " +
         "instances; plumb_variables lists Figma Variables and named styles " +
         "with their values; plumb_comments reads the file's comment threads " +
-        "and plumb_versions its version history (both REST, need FIGMA_TOKEN); " +
+        "and plumb_versions its version history; plumb_files lists a team's " +
+        "projects and files and plumb_library its published components and " +
+        "styles (all four REST, per-minute limits, need FIGMA_TOKEN); " +
         "plumb_node's includeHidden also returns hidden layers; plumb_verify diffs your rendered layout against the design " +
         "and returns structured deltas; plumb_fit wraps that diff in a 0–100 " +
         "convergence score + prioritised fixes so you can iterate to a " +
@@ -102,6 +106,8 @@ export function createServer(): McpServer {
   registerPlumbVariables(server);
   registerPlumbComments(server);
   registerPlumbVersions(server);
+  registerPlumbFiles(server);
+  registerPlumbLibrary(server);
   registerPlumbVerify(server);
   registerPlumbFit(server);
   registerPlumbQuery(server);

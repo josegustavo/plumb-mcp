@@ -1,5 +1,6 @@
 import { PlumbError, toErrorPayload } from "../errors";
 import { isHosted } from "../hosted";
+import { resolveFigmaTarget } from "../figma/url";
 import { assertStructureBounds } from "../util/bounds";
 import type { PdsDocument } from "../pds";
 
@@ -22,7 +23,8 @@ export function fail(e: unknown) {
  * A hosted server (`plumb-mcp serve`) reads designs through the plugin only:
  * REST file reads would skip PLUMB_ALLOWED_FILES and spend the Figma plan's
  * small monthly Tier 1 quota on every remote client's behalf. Only the
- * comments and versions tools (Tier 2, per-minute limits) pass `hostedOk`.
+ * per-minute (Tier 2/3) tools — comments, versions, files, library — pass
+ * `hostedOk`.
  */
 export function requireToken(hostedOk = false): string {
   if (isHosted() && !hostedOk) {
@@ -40,6 +42,22 @@ export function requireToken(hostedOk = false): string {
     );
   }
   return token;
+}
+
+/**
+ * The file a per-minute REST tool (comments, versions, file metadata) reads:
+ * `url` or `fileKey`, else PLUMB_FILE_KEY — so a central server that works on
+ * one file needs no link in every request.
+ */
+export function restFileKey(args: { url?: string; fileKey?: string }): string {
+  const fileKey = resolveFigmaTarget(args).fileKey ?? (process.env.PLUMB_FILE_KEY?.trim() || undefined);
+  if (!fileKey) {
+    throw new PlumbError(
+      "No Figma file key given.",
+      "Pass `url` (any link to the file) or `fileKey`, or set PLUMB_FILE_KEY on the server.",
+    );
+  }
+  return fileKey;
 }
 
 /** Minimal shape check for a raw JSON object the caller claims is a

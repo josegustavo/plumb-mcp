@@ -27,6 +27,8 @@ export const HOSTED_TOOLS = [
   "plumb_assets",
   "plumb_comments",
   "plumb_versions",
+  "plumb_files",
+  "plumb_library",
   "plumb_audit",
   "plumb_diff",
 ] as const;

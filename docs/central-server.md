@@ -13,10 +13,15 @@ MCP clients / gateway ──HTTP /mcp (bearer)──►  plumb-mcp serve  ◄─
 Design reads go through the plugin, so they use no Figma API quota and work on
 every Figma plan. The server refuses REST file reads (`fileKey` / `url`
 arguments). They would skip `PLUMB_ALLOWED_FILES` and spend the plan's small
-monthly Tier 1 quota for every client. Only `plumb_comments` and
-`plumb_versions` call the REST API. The Plugin API has no way to read comments
-or version history. Both need a personal access token (`FIGMA_TOKEN`, free,
-read-only scopes are enough) and fall under Figma's per-minute Tier 2 limits.
+monthly Tier 1 quota for every client.
+
+Only four tools call the REST API, all for things the Plugin API can't read:
+`plumb_comments`, `plumb_versions`, `plumb_files` (team projects, project files,
+file metadata) and `plumb_library` (the team's published components and
+styles). They need a personal access token (`FIGMA_TOKEN`, free, read-only
+scopes are enough) and fall under Figma's per-minute Tier 2/3 limits, not the
+monthly quota. Set `PLUMB_FILE_KEY` and `PLUMB_TEAM_ID` so requests don't need
+to paste a link.
 
 ## What `plumb-mcp serve` changes
 
@@ -24,7 +29,7 @@ read-only scopes are enough) and fall under Figma's per-minute Tier 2 limits.
 |---|---|---|
 | MCP transport | stdin/stdout, one client | Streamable HTTP at `/mcp`, many clients, stateless. `/health` needs no auth. |
 | Auth | none (local process) | `Authorization: Bearer $PLUMB_MCP_TOKEN`, required beyond loopback |
-| Tools | all | Read-only set: status, outline, node, query, search, describe, components, variables, tokens, screenshot, assets, comments, versions, audit, diff. `PLUMB_TOOLS=all` or a comma list overrides it. |
+| Tools | all | Read-only set: status, outline, node, query, search, describe, components, variables, tokens, screenshot, assets, comments, versions, files, library, audit, diff. `PLUMB_TOOLS=all` or a comma list overrides it. |
 | Images | file paths on this machine | Screenshots and bitmaps are also returned as MCP image blocks, up to `PLUMB_INLINE_MAX_BYTES` (default 5 MB) per response. |
 | Exported files | kept | deleted after 24 h. Clients can't reach the server's disk anyway. |
 

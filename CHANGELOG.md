@@ -12,6 +12,16 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [0.13.3-fork.2]
+
+### Added
+
+- **`plumb_comments`**: each thread now has its exact pin point (`pin`), relative to the pinned node or on the canvas, and the marked area (`region`) when the comment covers one.
+- **`plumb_files`**: a team's projects, a project's files with last-modified dates, or one file's metadata (last editor and time, version). Uses Figma REST, Tier 2/3.
+- **`plumb_library`**: a team's published components, component sets or styles across all its files, with a name/description filter and paging. Uses Figma REST, Tier 3.
+- **Defaults**: `PLUMB_FILE_KEY` is the default file for `plumb_comments` and `plumb_versions`, and `PLUMB_TEAM_ID` the default team for `plumb_files` and `plumb_library`.
+- `serve` includes `plumb_files` and `plumb_library` in its read-only toolset.
+
 ## [0.13.3-fork.1] — fork [josegustavo/plumb-mcp](https://github.com/josegustavo/plumb-mcp)
 
 Upstream 0.13.3 plus the changes below.
