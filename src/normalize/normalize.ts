@@ -230,6 +230,10 @@ export function normalize(
       // ship (single-solid case), so the two fields are strictly disjoint.
       node.fill = fill;
     }
+    if (fn.fillStyle) node.fillStyle = fn.fillStyle;
+    if (fn.strokeStyle) node.strokeStyle = fn.strokeStyle;
+    if (fn.textStyle) node.textStyle = fn.textStyle;
+    if (fn.effectStyle) node.effectStyle = fn.effectStyle;
 
     // Surface the nearest ancestor's solid fill when this node has none of
     // its own — the renderer can read it directly instead of walking the
@@ -322,6 +326,8 @@ export function normalize(
       else if (dec === "STRIKETHROUGH") node.textDecoration = "line-through";
       const textCase = pdsTextCase(fn.style?.textCase);
       if (textCase) node.textCase = textCase;
+      const align = fn.style?.textAlignHorizontal;
+      if (align && align !== "LEFT") node.textAlign = align.toLowerCase() as PdsNode["textAlign"];
 
       // v0.10 Phase 3 — mixed inline styles. When the plugin captured runs
       // (a bold word inside a sentence, a coloured link, etc.) emit them

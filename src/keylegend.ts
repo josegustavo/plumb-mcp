@@ -29,6 +29,9 @@ export const KEY_LEGEND: Record<string, string> = {
   fills:
     "structured fill stack — solid / linear-gradient / radial-gradient / image with assetId. Emitted whenever the compact `fill` string would be lossy (multi-fill, gradient, image). Render in CSS as comma-separated layers. May arrive as a $fN ref into tokens.fills for repeating gradient/solid stacks (image stacks stay inline).",
   text: "type style — token ref $tN into tokens.text ('weight size/lh family')",
+  "fillStyle / strokeStyle / textStyle / effectStyle":
+    "name of the Figma named style applied (e.g. 'Brand/Primary'). Absent = raw value, not a style. Plugin path only.",
+  textAlign: "text horizontal alignment — 'center' / 'right' / 'justified'. Omitted when left.",
   textDecoration: "'underline' or 'line-through' on TEXT nodes (Figma STRIKETHROUGH/UNDERLINE)",
   chars: "literal text content of a TEXT node",
   opacity: "0..1, omitted when 1",

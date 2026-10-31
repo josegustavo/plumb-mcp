@@ -1,4 +1,4 @@
-import type { FigmaNode } from "../figma/types";
+import type { FigmaEffect, FigmaNode, FigmaPaint, FigmaTypeStyle } from "../figma/types";
 
 /** Localhost ports the bridge tries to bind, and the plugin scans to find it. */
 export const BRIDGE_PORTS = [
@@ -43,6 +43,27 @@ export interface ComponentInfo {
   w: number;
   h: number;
   instanceCount: number;
+}
+
+/** One local variable collection, values keyed by mode name. Raw plugin
+ *  values: COLOR is `{r,g,b,a}`, an alias is `{alias: "<variable name>"}`. */
+export interface VariableCollectionInfo {
+  name: string;
+  modes: string[];
+  variables: Array<{
+    name: string;
+    type: string;
+    values: Record<string, unknown>;
+    web?: string;
+    description?: string;
+  }>;
+}
+
+/** Local named styles, raw plugin shapes (formatted by `plumb_variables`). */
+export interface LocalStylesInfo {
+  paint: Array<{ name: string; paints: FigmaPaint[]; description?: string }>;
+  text: Array<{ name: string; style: FigmaTypeStyle; description?: string }>;
+  effect: Array<{ name: string; effects: FigmaEffect[]; description?: string }>;
 }
 
 /** One instance usage of a component. */
@@ -444,6 +465,13 @@ export type PluginMessage =
       instances: InstanceInfo[];
       error: string | null;
     }
+  | {
+      t: "variables";
+      reqId: string;
+      collections: VariableCollectionInfo[];
+      styles: LocalStylesInfo;
+      error: string | null;
+    }
   // ---- Write direction (non-terminal progress + terminal results) ----------
   | ApplyProgressMessage
   | { t: "applied"; reqId: string; result: EmitResult | null; error: string | null }
@@ -478,6 +506,7 @@ export type ServerMessage =
   | { t: "get-inventory"; reqId: string }
   | { t: "get-search"; reqId: string; query?: string; type?: string }
   | { t: "get-components"; reqId: string }
+  | { t: "get-variables"; reqId: string }
   // ---- Write direction (three sequenced mutations) -------------------------
   | { t: "apply-design"; reqId: string; plan: EmitPlan }
   | { t: "apply-foundations"; reqId: string; plan: FoundationsPlan; dryRun?: boolean }

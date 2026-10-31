@@ -14,7 +14,7 @@ import { applyFoundations } from "./foundations";
 import { wireMotion } from "./motion-emit";
 import { collectAssets, collectSpecific } from "./assets";
 import { buildInventory, ensureAllPagesLoaded } from "./inventory";
-import { buildVariableMap, serialize } from "./serialize";
+import { buildStyleMap, buildVariableMap, normalizePaint, serialize, weightOf } from "./serialize";
 
 /* ------------------------------------------------------------------ */
 /* Server requests, relayed through the UI iframe                      */
@@ -101,6 +101,83 @@ export async function handleGetSearch(
   } catch (e) {
     reply({ t: "search", reqId, matches: [], error: errMsg(e) });
   }
+}
+
+/**
+ * Every local variable collection (modes + per-mode values, aliases resolved
+ * to the target variable's name) and every local paint / text / effect style.
+ * Values ship raw (RGBA, plugin paints and effects); the server formats them.
+ */
+export async function handleGetVariables(reqId: string): Promise<void> {
+  try {
+    const collections = await Promise.all(
+      (await figma.variables.getLocalVariableCollectionsAsync()).map(async (c) => {
+        const modeName = new Map(c.modes.map((m) => [m.modeId, m.name]));
+        const vars = await Promise.all(c.variableIds.map((id) => figma.variables.getVariableByIdAsync(id)));
+        return {
+          name: c.name,
+          modes: c.modes.map((m) => m.name),
+          variables: await Promise.all(
+            vars.filter((v): v is Variable => v !== null).map((v) => variableEntry(v, modeName)),
+          ),
+        };
+      }),
+    );
+    const described = <T extends BaseStyle>(s: T) => (s.description ? { description: s.description } : {});
+    const styles = {
+      paint: (await figma.getLocalPaintStylesAsync()).map((s) => ({
+        name: s.name,
+        paints: s.paints.map((p) => normalizePaint(p)),
+        ...described(s),
+      })),
+      text: (await figma.getLocalTextStylesAsync()).map((s) => ({
+        name: s.name,
+        style: {
+          fontSize: s.fontSize,
+          fontFamily: s.fontName.family,
+          fontWeight: weightOf(s.fontName.style),
+          ...(s.lineHeight.unit === "PIXELS"
+            ? { lineHeightPx: s.lineHeight.value }
+            : s.lineHeight.unit === "PERCENT"
+              ? { lineHeightPx: (s.fontSize * s.lineHeight.value) / 100 }
+              : {}),
+          ...(s.letterSpacing.unit === "PIXELS" && s.letterSpacing.value
+            ? { letterSpacing: s.letterSpacing.value }
+            : {}),
+        },
+        ...described(s),
+      })),
+      effect: (await figma.getLocalEffectStylesAsync()).map((s) => ({
+        name: s.name,
+        effects: s.effects,
+        ...described(s),
+      })),
+    };
+    reply({ t: "variables", reqId, collections, styles, error: null });
+  } catch (e) {
+    reply({ t: "variables", reqId, collections: [], styles: { paint: [], text: [], effect: [] }, error: errMsg(e) });
+  }
+}
+
+async function variableEntry(v: Variable, modeName: Map<string, string>): Promise<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const [modeId, val] of Object.entries(v.valuesByMode)) {
+    const mode = modeName.get(modeId) ?? modeId;
+    if (val && typeof val === "object" && (val as VariableAlias).type === "VARIABLE_ALIAS") {
+      const target = await figma.variables.getVariableByIdAsync((val as VariableAlias).id);
+      values[mode] = { alias: target?.name ?? (val as VariableAlias).id };
+    } else {
+      values[mode] = val;
+    }
+  }
+  const web = v.codeSyntax?.WEB;
+  return {
+    name: v.name,
+    type: v.resolvedType,
+    values,
+    ...(web ? { web } : {}),
+    ...(v.description ? { description: v.description } : {}),
+  };
 }
 
 export async function handleGetComponents(reqId: string): Promise<void> {
@@ -241,10 +318,11 @@ export async function handleServerRequest(req: any): Promise<void> {
     const scene = node as SceneNode;
     const depth = typeof req.depth === "number" ? req.depth : undefined;
     const varMap = await buildVariableMap(scene, depth);
+    const styleMap = await buildStyleMap(scene, depth);
     reply({
       t: "node",
       reqId: req.reqId,
-      doc: serialize(scene, varMap, depth),
+      doc: serialize(scene, varMap, depth, styleMap),
       nodeName: scene.name,
     });
     return;
@@ -258,10 +336,11 @@ export async function handleServerRequest(req: any): Promise<void> {
       return;
     }
     const varMap = await buildVariableMap(node);
+    const styleMap = await buildStyleMap(node);
     reply({
       t: "selection-doc",
       reqId: req.reqId,
-      doc: serialize(node, varMap),
+      doc: serialize(node, varMap, undefined, styleMap),
       nodeName: node.name,
     });
     return;
@@ -319,6 +398,11 @@ export async function handleServerRequest(req: any): Promise<void> {
 
   if (req.t === "get-components") {
     await handleGetComponents(req.reqId);
+    return;
+  }
+
+  if (req.t === "get-variables") {
+    await handleGetVariables(req.reqId);
     return;
   }
 

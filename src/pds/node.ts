@@ -56,6 +56,16 @@ export interface PdsNode {
    */
   fill?: string;
   /**
+   * Names of the Figma named styles applied to this node (e.g.
+   * `"Brand/Primary"`, `"Heading/H2"`). Absent = the value is raw, not a
+   * style (it may still be bound to a variable — see `var` / `strokeVar`).
+   * `textStyle` is absent on text that mixes several styles. Plugin path only.
+   */
+  fillStyle?: string;
+  strokeStyle?: string;
+  textStyle?: string;
+  effectStyle?: string;
+  /**
    * Full fill stack, bottom-up. Emitted whenever the single-string `fill`
    * representation would be lossy — i.e. multiple paints layered, a
    * gradient (with all its stops), or an image (with its asset id). Render
@@ -366,7 +376,8 @@ export interface PdsNode {
   sizingMax?: { w?: number; h?: number };
 
   // ---- Write-direction authoring extension (blueprint §9.9, additive) ------
-  /** Text horizontal alignment (TEXT nodes). Read side omits; write sets it. */
+  /** Text horizontal alignment (TEXT nodes). Read side emits it only when not
+   *  `left` (the CSS default); write sets it. */
   textAlign?: "left" | "center" | "right" | "justified";
   /** Frame scroll overflow — drives the destination frame's `overflowDirection`. */
   overflow?: "none" | "horizontal" | "vertical" | "both";

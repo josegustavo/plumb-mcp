@@ -42,11 +42,13 @@ import type {
   FoundationsResult,
   InstanceInfo,
   InventoryPage,
+  LocalStylesInfo,
   MotionPlan,
   MotionResult,
   PluginMessage,
   SearchMatch,
   ServerMessage,
+  VariableCollectionInfo,
   WireAsset,
 } from "./protocol";
 
@@ -227,6 +229,15 @@ export function requestComponents(): Promise<{
     60_000,
     "components",
   );
+}
+
+/** Ask the plugin for every local variable collection and named style. */
+export function requestVariables(): Promise<{
+  collections: VariableCollectionInfo[];
+  styles: LocalStylesInfo;
+  error: string | null;
+}> {
+  return request((reqId) => ({ t: "get-variables", reqId }), 60_000, "variables");
 }
 
 /* ------------------------------------------------------------------ */
@@ -678,6 +689,13 @@ export async function startBridge(): Promise<void> {
           resolvePending(msg.reqId, {
             components: msg.components,
             instances: msg.instances,
+            error: msg.error,
+          });
+          break;
+        case "variables":
+          resolvePending(msg.reqId, {
+            collections: msg.collections,
+            styles: msg.styles,
             error: msg.error,
           });
           break;

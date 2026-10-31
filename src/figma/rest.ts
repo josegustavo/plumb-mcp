@@ -116,6 +116,54 @@ export async function fetchFileOutline(
   };
 }
 
+/** One comment as the REST API returns it (`GET /v1/files/:key/comments`). */
+export interface RestComment {
+  id: string;
+  parent_id?: string;
+  order_id?: string | null;
+  message: string;
+  created_at: string;
+  resolved_at?: string | null;
+  user?: { handle?: string };
+  /** Pinned position — `node_id` when the comment sits on a frame/layer. */
+  client_meta?: { node_id?: string; node_offset?: { x: number; y: number }; x?: number; y?: number } | null;
+}
+
+/**
+ * Every comment on a file. The plugin API cannot read comments, so this is
+ * REST-only. Comments sit in Figma's Tier 2 rate limit (per-minute), not the
+ * Tier 1 per-month cap that file/node reads hit on Starter plans.
+ */
+export async function fetchComments(fileKey: string, token: string): Promise<RestComment[]> {
+  const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/comments`;
+
+  let res: Awaited<ReturnType<typeof fetch>>;
+  try {
+    res = await fetch(url, {
+      headers: { "X-Figma-Token": token },
+      signal: AbortSignal.timeout(REST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new PlumbError(
+      `Could not reach api.figma.com: ${describeFetchError(e)}`,
+      "Check your internet connection, then retry.",
+    );
+  }
+
+  if (res.status === 429) {
+    const wait = Number(res.headers.get("retry-after"));
+    throw new PlumbError(
+      "Figma rate-limited the comments request (HTTP 429)" +
+        (Number.isFinite(wait) && wait > 0 ? `; Retry-After ${Math.ceil(wait)}s.` : "."),
+      "Do not retry before Retry-After has passed — every retry counts against the same quota.",
+    );
+  }
+  if (!res.ok) throw restError(res.status, fileKey);
+
+  const json = (await res.json()) as { comments?: RestComment[] };
+  return Array.isArray(json.comments) ? json.comments : [];
+}
+
 function restError(status: number, fileKey: string): PlumbError {
   switch (status) {
     case 401:

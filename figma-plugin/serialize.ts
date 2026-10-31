@@ -194,6 +194,55 @@ export function varInfoFor(binding: unknown, varMap: Map<string, VarInfo> | unde
   return id === undefined ? undefined : varMap.get(id);
 }
 
+/**
+ * Named styles applied to a node, plugin field → wire field. A text node with
+ * more than one style returns `figma.mixed` for `textStyleId`; that is skipped
+ * (no single name to report).
+ */
+const STYLE_FIELDS = [
+  ["fillStyleId", "fillStyle"],
+  ["strokeStyleId", "strokeStyle"],
+  ["textStyleId", "textStyle"],
+  ["effectStyleId", "effectStyle"],
+] as const;
+
+/**
+ * Map of style id → style name for every named style applied in the subtree.
+ * Same pre-resolve pattern as `buildVariableMap`: `serialize()` is sync and
+ * `getStyleByIdAsync` isn't. Works for team-library styles too.
+ */
+export async function buildStyleMap(root: SceneNode, depth?: number): Promise<Map<string, string>> {
+  const ids = new Set<string>();
+  collectStyleIds(root, depth, ids);
+  const map = new Map<string, string>();
+  await Promise.all(
+    [...ids].map(async (id) => {
+      try {
+        const style = await figma.getStyleByIdAsync(id);
+        if (style) map.set(id, style.name);
+      } catch {
+        // Deleted / inaccessible library style — the hex still ships.
+      }
+    }),
+  );
+  return map;
+}
+
+function collectStyleIds(node: SceneNode, remainingDepth: number | undefined, out: Set<string>): void {
+  try {
+    const n = node as unknown as Record<string, unknown>;
+    for (const [key] of STYLE_FIELDS) {
+      const id = n[key];
+      if (typeof id === "string" && id) out.add(id);
+    }
+    if (remainingDepth === 0 || !("children" in node)) return;
+    const next = remainingDepth === undefined ? undefined : remainingDepth - 1;
+    for (const kid of (node as ChildrenMixin).children) collectStyleIds(kid, next, out);
+  } catch {
+    // Broken node — serialize() stubs it too.
+  }
+}
+
 export function serializeReactions(node: SceneNode): unknown[] | undefined {
   const r = (node as unknown as { reactions?: unknown }).reactions;
   if (!Array.isArray(r) || r.length === 0) return undefined;
@@ -236,11 +285,22 @@ export function serialize(
   node: SceneNode,
   varMap?: Map<string, VarInfo>,
   remainingDepth?: number,
+  styleMap?: Map<string, string>,
 ): SerialNode {
   const n = node as unknown as Record<string, any>;
   const out: SerialNode = { id: node.id, name: node.name, type: node.type };
 
   if (n.visible === false) out.visible = false;
+
+  // Named styles (colour / text / effect) — the design-system name the
+  // designer picked, e.g. "Brand/Primary" or "Heading/H2". Plugin only.
+  if (styleMap) {
+    for (const [key, field] of STYLE_FIELDS) {
+      const id = n[key];
+      const name = typeof id === "string" && id ? styleMap.get(id) : undefined;
+      if (name) out[field] = name;
+    }
+  }
 
   const bb = n.absoluteBoundingBox;
   if (bb) out.absoluteBoundingBox = { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
@@ -521,7 +581,7 @@ export function serialize(
         // screen walk. If a child throws, emit a minimal stub and keep going.
         out.children = kids.map((kid) => {
           try {
-            return serialize(kid, varMap, next);
+            return serialize(kid, varMap, next, styleMap);
           } catch {
             return { id: kid.id, name: kid.name, type: kid.type } as SerialNode;
           }

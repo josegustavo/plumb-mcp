@@ -171,6 +171,11 @@ export interface FigmaNode {
   cornerRadiusVar?: string;
   /** Plugin-injected: Web code syntax of the `cornerRadius` variable, if defined. */
   cornerRadiusCssVar?: string;
+  /** Plugin-injected: names of the named styles applied to this node. */
+  fillStyle?: string;
+  strokeStyle?: string;
+  textStyle?: string;
+  effectStyle?: string;
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
   opacity?: number;

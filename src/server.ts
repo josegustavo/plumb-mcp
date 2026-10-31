@@ -3,6 +3,7 @@ import { SERVER_NAME, SERVER_VERSION } from "./meta";
 import { registerPlumbAssets } from "./tools/assets";
 import { registerPlumbAudit } from "./tools/audit";
 import { registerBrandTool } from "./tools/brand";
+import { registerPlumbComments } from "./tools/comments";
 import { registerPlumbComponents } from "./tools/components";
 import { registerPlumbDescribe } from "./tools/describe";
 import { registerPlumbDesign } from "./tools/design";
@@ -28,6 +29,7 @@ import {
   registerPlumbStudioStart,
 } from "./tools/studioFlow";
 import { registerPlumbTokens } from "./tools/tokens";
+import { registerPlumbVariables } from "./tools/variables";
 import { registerPlumbVerify } from "./tools/verify";
 
 /** Builds the Plumb MCP server with all tools registered. */
@@ -48,7 +50,9 @@ export function createServer(): McpServer {
         "extracts the live selection; plumb_assets exports icons/images " +
         "(list / surgical modes); plumb_screenshot renders a node to PNG; " +
         "plumb_search finds nodes; plumb_components lists components and " +
-        "instances; plumb_verify diffs your rendered layout against the design " +
+        "instances; plumb_variables lists Figma Variables and named styles " +
+        "with their values; plumb_comments reads the file's comment threads " +
+        "(REST, needs FIGMA_TOKEN); plumb_verify diffs your rendered layout against the design " +
         "and returns structured deltas; plumb_fit wraps that diff in a 0–100 " +
         "convergence score + prioritised fixes so you can iterate to a " +
         "pixel-perfect match (build → plumb_fit → fix → repeat until done); " +
@@ -81,6 +85,8 @@ export function createServer(): McpServer {
   registerPlumbDescribe(server);
   registerPlumbSearch(server);
   registerPlumbComponents(server);
+  registerPlumbVariables(server);
+  registerPlumbComments(server);
   registerPlumbVerify(server);
   registerPlumbFit(server);
   registerPlumbQuery(server);
