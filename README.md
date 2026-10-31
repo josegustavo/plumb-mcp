@@ -7,7 +7,7 @@
 # Plumb (`plumb-mcp`) — the AI-native design engineering platform
 
 > [!NOTE]
-> **This is a fork** of [tathagat22/plumb-mcp](https://github.com/tathagat22/plumb-mcp) (MIT). It follows upstream and adds the reads and the shared-server mode below. Everything else in this README is upstream's and still applies. The fork's changes are listed in [CHANGELOG.md](./CHANGELOG.md).
+> **This is a fork** of [tathagat22/plumb-mcp](https://github.com/tathagat22/plumb-mcp) (MIT). It follows upstream and adds the reads and the shared-server mode below. Everything else in this README is upstream's and still applies. The fork numbers its own releases from 1.0.0, based on upstream 0.13.3; its changes are listed in [CHANGELOG.md](./CHANGELOG.md).
 >
 > - **More Figma details.** Nodes name their colour, text, effect and grid **styles** (`fillStyle`, `textStyle`, …). They also carry text alignment and links, lists, paragraph spacing, max lines and italics, plus Figma Grid layout, layout grids, annotations, dev status and export settings. `plumb_components` returns component property definitions.
 > - **New read tools.**

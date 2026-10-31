@@ -12,6 +12,10 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [1.0.0] — fork [josegustavo/plumb-mcp](https://github.com/josegustavo/plumb-mcp)
+
+The fork now has its own version line, starting at 1.0.0 and based on upstream 0.13.3. Upstream stays on 0.x, so the two never collide. The code is the same as 0.13.3-fork.4; the fork's interim releases are listed below.
+
 ## [0.13.3-fork.4]
 
 Pre-production hardening after four independent reviews.
