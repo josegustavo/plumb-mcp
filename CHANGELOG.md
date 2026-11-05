@@ -12,6 +12,18 @@ are summarized only briefly.
 
 ## [Unreleased]
 
+## [1.0.1]
+
+Large files on a central server.
+
+### Fixed
+
+- The first `plumb_search` on a large file (13 pages, about 1,500 screens) timed out: it loads and walks every page, and the server allowed 30 s. Search now gets up to 120 s, still capped by `PLUMB_REQUEST_TIMEOUT_MS`.
+- Search walked the whole file in one synchronous pass, which could freeze Figma long enough for the bridge's heartbeat to drop the plugin. It now yields every 2,000 layers.
+- The plugin loads every page in the background as soon as it pairs, so the first search or outline does not wait for it.
+
+Re-import the plugin to get the search changes: they live in the plugin, not the server.
+
 ## [1.0.0] — fork [josegustavo/plumb-mcp](https://github.com/josegustavo/plumb-mcp)
 
 The fork now has its own version line, starting at 1.0.0 and based on upstream 0.13.3. Upstream stays on 0.x, so the two never collide. The code is the same as 0.13.3-fork.4; the fork's interim releases are listed below.

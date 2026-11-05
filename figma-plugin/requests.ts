@@ -71,8 +71,13 @@ export async function handleGetSearch(
     const t = (type ?? "").toUpperCase();
     const matches: any[] = [];
     const MAX = 50;
-    function visit(n: any, page: string, parent: string): void {
+    // A big file has hundreds of thousands of layers: hand Figma (and the UI's
+    // heartbeat pongs) the thread back every few thousand, or the bridge drops
+    // a plugin that is only busy searching.
+    let seen = 0;
+    async function visit(n: any, page: string, parent: string): Promise<void> {
       if (matches.length >= MAX) return;
+      if (++seen % 2000 === 0) await new Promise((r) => setTimeout(r, 0));
       if (n.visible === false) return;
       const nameOk = !q || ((n.name ?? "") as string).toLowerCase().indexOf(q) !== -1;
       const typeOk = !t || n.type === t;
@@ -91,11 +96,11 @@ export async function handleGetSearch(
       }
       // Skip INSTANCE children — they are component mirrors that would flood results.
       if (Array.isArray(n.children) && n.type !== "INSTANCE") {
-        for (const c of n.children) visit(c, page, n.name);
+        for (const c of n.children) await visit(c, page, n.name);
       }
     }
     for (const page of figma.root.children) {
-      for (const child of page.children) visit(child, page.name, "");
+      for (const child of page.children) await visit(child, page.name, "");
     }
     reply({ t: "search", reqId, matches, error: null });
   } catch (e) {

@@ -14,7 +14,7 @@
 
 import { DOT, PANEL } from "./constants";
 import { uploadAcks } from "./assets";
-import { pushInventory, pushSelection } from "./inventory";
+import { ensureAllPagesLoaded, pushInventory, pushSelection } from "./inventory";
 import { dispatchServerRequest } from "./requests";
 import { invalidateVariableMapCache } from "./serialize";
 
@@ -59,6 +59,9 @@ figma.ui.onmessage = (message: {
       break;
     case "paired":
       void figma.clientStorage.setAsync("plumb-paired", true);
+      // Load every page now, in the background, so the first search or
+      // outline a user asks for doesn't wait for it.
+      ensureAllPagesLoaded().catch(() => {});
       break;
     case "server-request":
       void dispatchServerRequest(message.req);

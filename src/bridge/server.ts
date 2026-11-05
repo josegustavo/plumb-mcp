@@ -219,7 +219,9 @@ export function requestSearch(
 ): Promise<{ matches: SearchMatch[]; error: string | null }> {
   return request(
     (reqId) => ({ t: "get-search", reqId, query, type }),
-    30_000,
+    // The first search loads and walks every page of the file; on a large one
+    // that takes well over 30 s. PLUMB_REQUEST_TIMEOUT_MS still caps it.
+    120_000,
     "search",
   );
 }

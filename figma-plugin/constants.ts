@@ -6,6 +6,6 @@
  * setting up, a 60px dot once it's paired and out of your way).
  */
 
-export const PLUGIN_VERSION = "1.0.0";
+export const PLUGIN_VERSION = "1.0.1";
 export const PANEL = { w: 240, h: 144 };
 export const DOT = { w: 60, h: 60 };
